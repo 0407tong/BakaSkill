@@ -1,0 +1,14 @@
+# 验收与性能基准用的临时目录（计划书 §0.4 登记为「临时目录」）。
+# 它们不是项目源码：_demo_library 是当前在用的中央库（含 100 MB 的 ppt-master），
+# _perf_library 是 1000 个假 Skill 的基准数据。
+# 中央库的备份由应用自己的「GitHub 同步」负责，不该混进源码仓库。
+_demo_library/
+_perf_library/
+
+# 操作系统噪声
+.DS_Store
+Thumbs.db
+
+# 说明：Project/ 下的 node_modules、dist、src-tauri/target 由各自的
+# .gitignore 嵌套规则负责（Project/.gitignore、src-tauri/.gitignore），
+# 其中 src-tauri/target 有 21 GB，务必不要在这里放开。

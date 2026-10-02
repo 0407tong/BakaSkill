@@ -1,0 +1,55 @@
+[package]
+name = "bakaskill"
+version = "0.1.0"
+description = "统一管理多个 AI 编程 Agent 的 Skill：可配置中央库 + junction 映射 + 一键启停"
+authors = ["BakaSkill"]
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[lib]
+# The `_lib` suffix may seem redundant but it is necessary
+# to make the lib name unique and wouldn't conflict with the bin name.
+# This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
+name = "bakaskill_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-log = "2"
+# tracing 的 "log" feature 让 tracing 事件同时产生 log 记录，
+# 从而被 tauri-plugin-log 安装的 log logger 捕获。
+# 注意：tauri-plugin-log 自身的 "tracing" feature 只影响 JS 侧日志命令，
+# 与 Rust 侧 tracing 宏能否输出无关，不要用错。
+tracing = { version = "0.1", features = ["log"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+thiserror = "2"
+junction = "2.1.0"
+dunce = "1.0.5"
+rusqlite = { version = "0.40.2", features = ["bundled"] }
+serde_yaml = "0.9.34"
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Storage_FileSystem"] }
+rayon = "1.12.0"
+keyring = "4.2.0"
+ureq = { version = "3.4.2", features = ["json"] }
+zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+trash = "5.2.9"
+base64 = "0.23.1"
+
+
+# Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = 3
+panic = "abort"
+strip = true
+
+[dev-dependencies]
+tempfile = "3.27.0"

@@ -1,0 +1,72 @@
+[
+  {
+    "id": "codex",
+    "display_name": "Codex",
+    "icon": "codex",
+    "skill_dir_candidates": ["%USERPROFILE%\\.codex\\skills"],
+    "detection": [
+      { "type": "any_exists", "paths": ["%USERPROFILE%\\.codex"] },
+      { "type": "exe_on_path", "commands": ["codex", "codex.exe"] }
+    ],
+    "max_scan_depth": 2,
+    "system_group_prefix": ".",
+    "notes": "实测确认（2026-10-01）：技能位于 skills/<分组>/<技能名>/SKILL.md，内置技能分组为 .system。因此扫描深度必须为 2，只扫一层会全部漏掉。",
+    "docs_url": null
+  },
+  {
+    "id": "claude-code",
+    "display_name": "Claude Code",
+    "icon": "claude",
+    "skill_dir_candidates": ["%USERPROFILE%\\.claude\\skills"],
+    "detection": [
+      { "type": "any_exists", "paths": ["%USERPROFILE%\\.claude"] },
+      { "type": "exe_on_path", "commands": ["claude", "claude.exe"] }
+    ],
+    "max_scan_depth": 1,
+    "system_group_prefix": ".",
+    "notes": "实测（2026-10-01）：本机 claude.exe 已安装但 ~/.claude/skills 不存在——该目录按需创建。检测状态需区分「已安装」与「技能目录已存在」。",
+    "docs_url": "https://docs.claude.com/en/docs/claude-code/skills"
+  },
+  {
+    "id": "trae",
+    "display_name": "Trae",
+    "icon": "trae",
+    "skill_dir_candidates": [],
+    "detection": [{ "type": "any_exists", "paths": ["%USERPROFILE%\\.trae", "%USERPROFILE%\\.trae-cn"] }],
+    "max_scan_depth": 1,
+    "system_group_prefix": ".",
+    "notes": "实测证伪（2026-10-01）：~/.trae 为 VS Code 系布局，不存在用户技能目录；找到的 skills 目录全部位于 builtin/ 下，属应用内置资源，不作为用户技能目录。用户需手动指定，或待其添加技能后重新侦察。",
+    "docs_url": null
+  },
+  {
+    "id": "cursor",
+    "display_name": "Cursor",
+    "icon": "cursor",
+    "skill_dir_candidates": ["%USERPROFILE%\\.cursor\\skills"],
+    "detection": [
+      { "type": "any_exists", "paths": ["%USERPROFILE%\\.cursor"] },
+      { "type": "exe_on_path", "commands": ["cursor", "cursor.exe"] }
+    ],
+    "max_scan_depth": 1,
+    "system_group_prefix": ".",
+    "notes": "未实测（本机未安装）。路径为候选，不得当作确定事实；检测失败即隐藏，允许用户手动指定。",
+    "docs_url": null
+  },
+  {
+    "id": "windsurf",
+    "display_name": "Windsurf",
+    "icon": "windsurf",
+    "skill_dir_candidates": [
+      "%USERPROFILE%\\.codeium\\windsurf\\skills",
+      "%USERPROFILE%\\.windsurf\\skills"
+    ],
+    "detection": [
+      { "type": "any_exists", "paths": ["%USERPROFILE%\\.codeium\\windsurf", "%USERPROFILE%\\.windsurf"] },
+      { "type": "exe_on_path", "commands": ["windsurf", "windsurf.exe"] }
+    ],
+    "max_scan_depth": 1,
+    "system_group_prefix": ".",
+    "notes": "未实测（本机未安装）。两个候选路径均无验证，检测失败即隐藏。",
+    "docs_url": null
+  }
+]

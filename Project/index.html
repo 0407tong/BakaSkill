@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BakaSkill</title>
+    <script>
+      // 在首屏渲染前应用主题，避免亮暗切换时的闪烁（FOUC）。
+      // 读取 zustand persist 写入 localStorage 的键 "bakaskill.ui"。
+      (function () {
+        try {
+          // 改名迁移：旧版本用的键名是 skillhub.*。
+          // 不搬的话用户的主题、视图模式、侧边栏折叠状态会被静默重置——
+          // 都是一次性的小偏好，但"换个名字就把设置清了"没有道理。
+          // 先写新键再删旧键，且**新键已有值时不覆盖**，因此重复执行是安全的。
+          ["ui", "skills", "layout.workspace"].forEach(function (suffix) {
+            var oldKey = "skillhub." + suffix;
+            var newKey = "bakaskill." + suffix;
+            var value = localStorage.getItem(oldKey);
+            if (value === null) return;
+            if (localStorage.getItem(newKey) === null) {
+              localStorage.setItem(newKey, value);
+            }
+            localStorage.removeItem(oldKey);
+          });
+
+          var stored = localStorage.getItem("bakaskill.ui");
+          var mode = "system";
+          if (stored) {
+            var parsed = JSON.parse(stored);
+            if (parsed && parsed.state && parsed.state.themeMode) {
+              mode = parsed.state.themeMode;
+            }
+          }
+          var isDark =
+            mode === "dark" ||
+            (mode === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (isDark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* 主题初始化失败不应阻塞应用启动 */
+        }
+      })();
+    </script>
+  </head>
+
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

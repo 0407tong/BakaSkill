@@ -1,0 +1,16 @@
+# 行尾符统一为 LF。
+#
+# 为什么要显式钉死：Git for Windows 的**系统级默认**是 core.autocrlf=true，
+# 会把检出的文本文件改成 CRLF。本项目在阶段 4 已经因为同一个系统默认吃过亏
+# （同步工作区必须用 `-c core.autocrlf=false` 才是字节忠实的镜像，见
+# Project/docs/GITHUB_SYNC.md §5.3）。
+#
+# 只设 `git config core.autocrlf false` 是不够的：那只写在 .git/config 里、
+# 不随仓库分发，换台机器克隆就会退回系统默认，届时全库出现行尾差异。
+# 写进 .gitattributes 才能跟着仓库走。
+* text=auto eol=lf
+
+# 二进制文件不做任何转换
+*.png binary
+*.ico binary
+*.icns binary

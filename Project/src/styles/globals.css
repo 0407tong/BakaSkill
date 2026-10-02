@@ -1,0 +1,273 @@
+@import "tailwindcss";
+
+/* Tailwind v4 的 dark: 变体默认跟随 prefers-color-scheme。
+   本项目需要「跟随系统 + 手动覆盖」，因此改为由 <html class="dark"> 驱动。 */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ==========================================================================
+   设计令牌（Design Tokens）
+   单一来源：以下 CSS 变量。亮色定义在 :root，暗色在 .dark 覆盖。
+   @theme inline 让颜色工具类直接引用变量，从而支持运行时切换主题。
+   ========================================================================== */
+
+:root {
+  /* 背景层次：bg（应用底） < bg-subtle（分区） < surface（卡片/面板） */
+  --sh-bg: oklch(98.4% 0.003 255);
+  --sh-bg-subtle: oklch(96.4% 0.004 255);
+  --sh-surface: oklch(100% 0 0);
+  --sh-surface-hover: oklch(96.6% 0.005 255);
+
+  /* 描边 */
+  --sh-border: oklch(90.4% 0.005 255);
+  --sh-border-strong: oklch(83.5% 0.007 255);
+
+  /* 文字层次 */
+  --sh-fg: oklch(22% 0.014 258);
+  --sh-fg-muted: oklch(51% 0.013 258);
+  --sh-fg-subtle: oklch(64% 0.011 258);
+
+  /* 主色 */
+  --sh-accent: oklch(54% 0.175 264);
+  --sh-accent-hover: oklch(48.5% 0.175 264);
+  --sh-accent-fg: oklch(99% 0 0);
+  --sh-accent-subtle: oklch(95.5% 0.028 264);
+
+  /* 语义色 */
+  --sh-success: oklch(56% 0.135 152);
+  --sh-success-subtle: oklch(95% 0.035 152);
+  --sh-warning: oklch(62% 0.145 72);
+  --sh-warning-subtle: oklch(96% 0.04 85);
+  --sh-danger: oklch(55% 0.19 25);
+  --sh-danger-subtle: oklch(95.5% 0.035 25);
+  --sh-info: oklch(56% 0.13 240);
+  --sh-info-subtle: oklch(95.5% 0.03 240);
+
+  --sh-ring: oklch(54% 0.175 264 / 0.45);
+}
+
+.dark {
+  --sh-bg: oklch(17.5% 0.008 260);
+  --sh-bg-subtle: oklch(21% 0.009 260);
+  --sh-surface: oklch(23% 0.009 260);
+  --sh-surface-hover: oklch(27.5% 0.011 260);
+
+  --sh-border: oklch(31% 0.01 260);
+  --sh-border-strong: oklch(39% 0.012 260);
+
+  --sh-fg: oklch(95.5% 0.004 260);
+  --sh-fg-muted: oklch(70% 0.012 260);
+  --sh-fg-subtle: oklch(56% 0.012 260);
+
+  --sh-accent: oklch(66% 0.16 264);
+  --sh-accent-hover: oklch(72% 0.155 264);
+  --sh-accent-fg: oklch(16% 0.02 264);
+  --sh-accent-subtle: oklch(30% 0.055 264);
+
+  --sh-success: oklch(72% 0.145 152);
+  --sh-success-subtle: oklch(29% 0.05 152);
+  --sh-warning: oklch(78% 0.14 78);
+  --sh-warning-subtle: oklch(31% 0.05 78);
+  --sh-danger: oklch(70% 0.17 25);
+  --sh-danger-subtle: oklch(31% 0.06 25);
+  --sh-info: oklch(72% 0.12 240);
+  --sh-info-subtle: oklch(30% 0.05 240);
+
+  --sh-ring: oklch(66% 0.16 264 / 0.5);
+}
+
+/* ==========================================================================
+   背景图模式
+   --------------------------------------------------------------------------
+   铺了背景图之后，面板若还是完全不透明，图基本看不见——"铺了等于没铺"。
+   因此开启时把这些令牌换成带 alpha 的值。
+
+   **改令牌而不是逐个组件改 class**：面板颜色统一来自这几个变量，改一处，
+   侧边栏、卡片、详情面板、对话框、顶栏全部一次性生效。
+
+   `--sh-panel-alpha` 由前端的滑杆驱动（见 lib/background.ts）：背景越明显，
+   面板越透。不这么连动的话，滑杆拉小时图片几乎看不见、面板却还半透明，
+   界面会显得发灰且说不清为什么。
+
+   两点注意：
+   1. `--sh-bg` 转成透明，让最底层的图透出来。
+   2. 只在 `data-bg-image="on"` 时生效——关掉背景或用默认值时，
+      界面必须与从前**一模一样**，不能留下半透明的残留。
+   ========================================================================== */
+
+:root[data-bg-image="on"] {
+  --sh-bg: transparent;
+  --sh-bg-subtle: oklch(
+    96.4% 0.004 255 / calc(var(--sh-panel-alpha, 0.78) - 0.1)
+  );
+  --sh-surface: oklch(100% 0 0 / var(--sh-panel-alpha, 0.78));
+  --sh-surface-hover: oklch(
+    96.6% 0.005 255 / calc(var(--sh-panel-alpha, 0.78) + 0.14)
+  );
+  --sh-border: oklch(90.4% 0.005 255 / 0.7);
+}
+
+:root[data-bg-image="on"].dark {
+  --sh-bg-subtle: oklch(
+    21% 0.009 260 / calc(var(--sh-panel-alpha, 0.78) - 0.1)
+  );
+  --sh-surface: oklch(23% 0.009 260 / var(--sh-panel-alpha, 0.78));
+  --sh-surface-hover: oklch(
+    27.5% 0.011 260 / calc(var(--sh-panel-alpha, 0.78) + 0.14)
+  );
+  --sh-border: oklch(31% 0.01 260 / 0.7);
+}
+
+/* 磨砂只给**结构性大面板**，由组件显式加 `.sh-frost` 类来要。
+   不给卡片加：列表里可能有上千张卡片，逐个 backdrop-filter 会明显拖慢滚动。 */
+:root[data-bg-image="on"] .sh-frost {
+  backdrop-filter: blur(14px) saturate(1.15);
+}
+
+/* --------------------------------------------------------------------------
+   图模式下"必须有自己的一层底"的元素
+   --------------------------------------------------------------------------
+   上面把 `--sh-bg` 设成了透明，这样一来，那些**原本靠应用底色提供对比、
+   自己不带背景**的横条（顶栏、扫描摘要栏、批量操作栏）就失去了底——
+   文字直接压在插画上。深色主题下白字压在浅色插画上，就是**完全看不见**。
+
+   所以凡是"直接压在应用底色上、又带着文字"的元素，都要显式加 `.sh-plate`
+   把底要回来。不给所有元素统一垫底，是因为那样会把插画糊掉，
+   而用户要的正是"看得见背景"。
+
+   只在图模式下生效；关掉背景时这些元素保持原样，一个像素都不变。
+   -------------------------------------------------------------------------- */
+:root[data-bg-image="on"] .sh-plate {
+  background-color: var(--sh-surface);
+}
+
+/* 批量操作栏自带一层强调色，图模式下要的是**不透明**的那一档 */
+:root[data-bg-image="on"] .sh-plate-accent {
+  background-color: var(--sh-accent-subtle);
+}
+
+/* 列表视图的行：给它和网格卡片同款的半透明底。
+   行本来只有一条下边框、不带背景（干净的列表观感），图模式下就完全透出插画。
+   行与行紧挨着，因此整列看起来是一块连续的半透明面板——这正是列表该有的样子。
+
+   hover 与选中态必须一并写：`.sh-row` 的选择器比 Tailwind 的
+   `hover:bg-surface-hover` 更具体，不补的话**加了底反而把悬停反馈吃掉了**。 */
+:root[data-bg-image="on"] .sh-row {
+  background-color: var(--sh-surface);
+}
+:root[data-bg-image="on"] .sh-row:hover:not(.sh-row-selected) {
+  background-color: var(--sh-surface-hover);
+}
+:root[data-bg-image="on"] .sh-row-selected {
+  background-color: var(--sh-accent-subtle);
+}
+
+@theme inline {
+  /* 颜色 */
+  --color-bg: var(--sh-bg);
+  --color-bg-subtle: var(--sh-bg-subtle);
+  --color-surface: var(--sh-surface);
+  --color-surface-hover: var(--sh-surface-hover);
+
+  --color-border: var(--sh-border);
+  --color-border-strong: var(--sh-border-strong);
+
+  --color-fg: var(--sh-fg);
+  --color-fg-muted: var(--sh-fg-muted);
+  --color-fg-subtle: var(--sh-fg-subtle);
+
+  --color-accent: var(--sh-accent);
+  --color-accent-hover: var(--sh-accent-hover);
+  --color-accent-fg: var(--sh-accent-fg);
+  --color-accent-subtle: var(--sh-accent-subtle);
+
+  --color-success: var(--sh-success);
+  --color-success-subtle: var(--sh-success-subtle);
+  --color-warning: var(--sh-warning);
+  --color-warning-subtle: var(--sh-warning-subtle);
+  --color-danger: var(--sh-danger);
+  --color-danger-subtle: var(--sh-danger-subtle);
+  --color-info: var(--sh-info);
+  --color-info-subtle: var(--sh-info-subtle);
+
+  --color-ring: var(--sh-ring);
+
+  /* 圆角 */
+  --radius-xs: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+
+  /* 阴影 */
+  --shadow-sm: 0 1px 2px oklch(0% 0 0 / 0.06);
+  --shadow-md: 0 4px 12px oklch(0% 0 0 / 0.08);
+  --shadow-lg: 0 12px 32px oklch(0% 0 0 / 0.16);
+
+  /* 字体：桌面应用优先系统字体，保证中文渲染质量 */
+  --font-sans:
+    "Segoe UI", "Microsoft YaHei UI", "Microsoft YaHei", system-ui,
+    -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --font-mono:
+    "Cascadia Mono", "Consolas", "JetBrains Mono", "Courier New", monospace;
+}
+
+/* ==========================================================================
+   基础层
+   ========================================================================== */
+
+@layer base {
+  * {
+    border-color: var(--sh-border);
+  }
+
+  html,
+  body,
+  #root {
+    height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--sh-bg);
+    color: var(--sh-fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    /* 桌面应用：禁止整页选中与橡皮筋滚动，避免\"网页感\" */
+    overscroll-behavior: none;
+  }
+
+  /* 桌面应用禁用文本选择拖拽，但内容区仍可选中 */
+  button,
+  [role="button"] {
+    user-select: none;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--sh-ring);
+    outline-offset: 1px;
+  }
+
+  /* 细滚动条，贴合桌面工具观感 */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background-color: var(--sh-border-strong);
+    border-radius: 999px;
+    border: 2px solid transparent;
+    background-clip: content-box;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background-color: var(--sh-fg-subtle);
+    background-clip: content-box;
+  }
+
+  /* 面板分隔条的样式由 AppShell 中的 <Separator> className 控制，
+     react-resizable-panels v4 不提供稳定的 state 属性选择器，故不在此处兜底。 */
+}
