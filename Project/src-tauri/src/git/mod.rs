@@ -311,10 +311,33 @@ pub struct LoginMethods {
 
 /// 定位 Git Credential Manager。
 ///
-/// 先查 PATH，再按 git 自身的安装位置推导——Scoop / 便携版 git 的
-/// shim 目录往往不包含 GCM，但二进制就在 git 安装目录的 `mingw64/bin` 下。
+/// # 顺序是有讲究的：**自带的那份优先**
+///
+/// GCM 自己会去调 `git`（`git version`、`git config --null --list`）。如果
+/// 用系统装的 GCM、而 `git` 又按 PATH 解析到别处，两者就可能不是同一套——
+/// 实测撞到过：系统 GCM 去调 `git` 时命中了 Scoop 的 shim，那个 shim 创建目标
+/// 进程失败，报出一长串
+/// `Shim: Could not create process ... Failed to enumerate all Git configuration entries`，
+/// 用户看到的只是"点了登录没反应"。
+///
+/// 所以这里**先认自带 git 目录里的 GCM**：它与自带的 git 是同一次发行里的
+/// 一对，必然配套。找不到才回退到 PATH，再回退到按 `git --exec-path` 推导
+/// （Scoop / 便携版 git 的 shim 目录往往不含 GCM，但二进制就在 `bin/` 下）。
+///
+/// 顺带一个好处：返回的是**绝对路径**，界面上显示的"用的是哪份 GCM"是真的。
 fn find_gcm() -> Option<std::path::PathBuf> {
-    // 1) PATH 上直接可执行
+    // 1) 自带 git 旁边那份
+    if let Some(root) = bundled_git_root() {
+        let bundled = ["ucrt64/bin", "mingw64/bin", "bin"]
+            .into_iter()
+            .map(|rel| root.join(rel).join("git-credential-manager.exe"))
+            .find(|candidate| candidate.is_file());
+        if let Some(found) = bundled {
+            return Some(found);
+        }
+    }
+
+    // 2) PATH 上直接可执行
     if let Ok(out) = git_cmd("git-credential-manager", None)
         .arg("--version")
         .output()
@@ -324,7 +347,7 @@ fn find_gcm() -> Option<std::path::PathBuf> {
         }
     }
 
-    // 2) 由 git --exec-path 推导：<git>/mingw64/libexec/git-core → <git>/mingw64/bin
+    // 3) 由 git --exec-path 推导：<git>/mingw64/libexec/git-core → <git>/mingw64/bin
     let exec_path = run_git(None, &["--exec-path"]).ok()?;
     let exec_path = std::path::PathBuf::from(exec_path.trim());
     let git_root = exec_path.parent()?.parent()?; // 去掉 libexec/git-core
