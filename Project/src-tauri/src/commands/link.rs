@@ -27,7 +27,7 @@ pub struct LinkStatus {
 /// 参数顺序是 **(link, target)** —— 面向用户的直觉顺序。
 /// 底层 `junction` crate 的签名恰好相反，转换在 `platform::link` 内完成，
 /// 调用方不需要关心。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn link_create(link_path: String, target_path: String) -> AppResult<LinkStatus> {
     let link_path = PathBuf::from(link_path);
     let target_path = PathBuf::from(target_path);
@@ -41,7 +41,7 @@ pub fn link_create(link_path: String, target_path: String) -> AppResult<LinkStat
 /// 删除目录 junction（**只删链接，不动目标内容**）。
 ///
 /// 若目标不是 junction，返回 `NotAJunction` 错误并拒绝执行。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn link_delete(link_path: String) -> AppResult<()> {
     let path = PathBuf::from(&link_path);
     link::delete_junction(&path)?;
@@ -50,7 +50,7 @@ pub fn link_delete(link_path: String) -> AppResult<()> {
 }
 
 /// 查询单个路径的链接状态
-#[tauri::command]
+#[tauri::command(async)]
 pub fn link_status(path: String) -> AppResult<LinkStatus> {
     let path = PathBuf::from(&path);
     let kind = link::classify(&path)?;
@@ -66,7 +66,7 @@ pub fn link_status(path: String) -> AppResult<LinkStatus> {
 }
 
 /// 列出某个目录下的全部链接及其目标（**不跟随**重解析点）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn link_list(dir: String) -> AppResult<Vec<LinkStatus>> {
     let dir = PathBuf::from(&dir);
     let entries = link::list_links_in(&dir)?;

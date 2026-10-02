@@ -8,7 +8,7 @@ use crate::library::{self, InitializeResult, LibraryStats, PathDiagnosis};
 ///
 /// 这是中央库路径选择器的后端支撑：用户在设置页选定
 /// 文件夹后立即调用它，把"能不能用、有什么风险"当场讲清楚。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn library_validate(path: String) -> AppResult<PathDiagnosis> {
     let diagnosis = library::diagnose(&path)?;
     // 记录结论而非仅记录"被调用过"：这样事后核对与故障排查都能从日志还原
@@ -26,7 +26,7 @@ pub fn library_validate(path: String) -> AppResult<PathDiagnosis> {
 }
 
 /// 创建中央库目录骨架（幂等）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn library_init(path: String) -> AppResult<InitializeResult> {
     library::initialize(&path)
 }
@@ -35,7 +35,7 @@ pub fn library_init(path: String) -> AppResult<InitializeResult> {
 ///
 /// `path` 为 `None` 时使用配置中已保存的中央库路径；两者都没有则报错，
 /// 而不是静默返回零值——"未配置"和"空库"是两种不同状态，UI 需要区分。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn library_stats(path: Option<String>) -> AppResult<LibraryStats> {
     let target = match path {
         Some(p) if !p.trim().is_empty() => p,

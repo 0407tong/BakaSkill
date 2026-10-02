@@ -26,7 +26,7 @@ fn resolve_root(path: Option<String>) -> AppResult<PathBuf> {
 ///
 /// 逐项独立结果，部分失败不回滚已成功项——回滚本身也是文件系统操作，
 /// 可能再失败一次，把状态弄得更乱。调用方须把每一项的结果如实说给用户。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn skills_uninstall(
     dir_names: Vec<String>,
     path: Option<String>,

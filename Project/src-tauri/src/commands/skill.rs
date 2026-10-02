@@ -48,7 +48,7 @@ fn manifest_of(dir: &str) -> AppResult<PathBuf> {
 }
 
 /// 读取一个 Skill 的 SKILL.md
-#[tauri::command]
+#[tauri::command(async)]
 pub fn skill_read(dir_path: String) -> AppResult<SkillFile> {
     let manifest = manifest_of(&dir_path)?;
     let content = std::fs::read_to_string(&manifest)
@@ -77,7 +77,7 @@ pub fn skill_read(dir_path: String) -> AppResult<SkillFile> {
 ///
 /// 写入前校验：内容必须能被解析（frontmatter 结构完整）。
 /// 拒绝把损坏的内容落盘——那会破坏用户的 Skill，且索引重建时会被跳过。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn skill_write(dir_path: String, content: String) -> AppResult<SkillFile> {
     let manifest = manifest_of(&dir_path)?;
 

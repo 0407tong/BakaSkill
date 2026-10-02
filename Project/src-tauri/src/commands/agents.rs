@@ -12,7 +12,7 @@ use crate::scanner::{self, ScanReport};
 /// 用户在配置中手动指定的 `skillDir` 优先于内置候选路径。
 /// 未安装的 Agent 也会返回（状态为 `notInstalled`），由前端决定是否隐藏——
 /// 把"是否展示"的判断放在 UI 层，后端只负责如实报告。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agents_detect() -> AppResult<Vec<AgentDetection>> {
     let cfg = config::load()?;
     let descriptors = agents::registry()?;
@@ -84,7 +84,7 @@ pub fn agents_detect() -> AppResult<Vec<AgentDetection>> {
 ///   其技能目录必须由用户在设置页指定，不能替它编一个。
 ///
 /// 返回重新检测后的完整结果，调用方直接拿新状态渲染即可。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn agent_create_skill_dir(agent_id: String) -> AppResult<Vec<AgentDetection>> {
     let detections = agents_detect()?;
     let target = detections
@@ -154,7 +154,7 @@ pub(crate) fn scan_with_root(
 ///
 /// 中央库路径取自配置；未配置时只扫描 Agent 目录，不报错——
 /// "还没设置中央库"是正常的初始状态，不是错误。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn skills_scan(library_path: Option<String>) -> AppResult<ScanReport> {
     let central_root: Option<PathBuf> = match library_path {
         Some(p) if !p.trim().is_empty() => Some(PathBuf::from(p)),

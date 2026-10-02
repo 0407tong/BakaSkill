@@ -9,7 +9,7 @@ use crate::error::{AppError, AppResult};
 ///
 /// 安全约束：目标是用户通过系统保存对话框亲自选定的路径，
 /// 后端不做目录遍历，也不覆盖目录（只写文件）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn write_text_file(path: String, content: String) -> AppResult<String> {
     let target = std::path::PathBuf::from(&path);
 

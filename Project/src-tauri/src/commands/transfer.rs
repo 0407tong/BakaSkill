@@ -24,7 +24,7 @@ fn resolve_root(path: Option<String>) -> AppResult<PathBuf> {
 }
 
 /// 第一步：准备导入并返回预览（候选、同名冲突、非法项）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_preview(source: ImportSource, path: Option<String>) -> AppResult<ImportPreview> {
     transfer::preview(&resolve_root(path)?, &source)
 }
@@ -34,13 +34,13 @@ pub fn import_preview(source: ImportSource, path: Option<String>) -> AppResult<I
 /// 与 `import_preview` 的差别：这里收的是一批路径，且必须由后端来判断
 /// 每一条是目录、ZIP 还是单个 SKILL.md——前端只有路径字符串，问不了文件系统。
 /// 认不出来的项会出现在预览的 `rejected` 里，不会被静默丢掉。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_preview_paths(paths: Vec<String>, path: Option<String>) -> AppResult<ImportPreview> {
     transfer::preview_paths(&resolve_root(path)?, &paths)
 }
 
 /// 第二步：按逐项选择把内容落进中央库
-#[tauri::command]
+#[tauri::command(async)]
 pub fn import_apply(
     token: String,
     decisions: Vec<ImportDecision>,
@@ -50,7 +50,7 @@ pub fn import_apply(
 }
 
 /// 导出选中的 Skill 为 ZIP 或纯目录结构
-#[tauri::command]
+#[tauri::command(async)]
 pub fn export_skills(
     dir_names: Vec<String>,
     dest: String,

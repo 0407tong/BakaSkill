@@ -63,7 +63,7 @@ fn resolve_central_root() -> AppResult<Option<PathBuf>> {
     Ok(config::load()?.central_library().map(PathBuf::from))
 }
 
-#[tauri::command]
+#[tauri::command(async)]
 pub fn link_matrix() -> AppResult<LinkMatrix> {
     let central_root = resolve_central_root()?;
 
@@ -177,7 +177,7 @@ pub fn link_matrix() -> AppResult<LinkMatrix> {
 ///
 /// **逐条独立结果，部分失败不回滚已成功项**：回滚本身也是文件系统操作，
 /// 有可能再失败一次，把状态弄得更乱。失败项会在结果里明确标出。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn link_set_enabled(
     skill_dir_name: String,
     agent_ids: Vec<String>,
@@ -252,7 +252,7 @@ pub fn link_set_enabled(
 ///
 /// 这是用户把**已有** Skill 收进中央库的路径。在此之前，
 /// 中央库只能靠手工拷贝文件来填充。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn skill_adopt(agent_id: String, dir_name: String) -> AppResult<AdoptResult> {
     let Some(root) = resolve_central_root()? else {
         return Err(AppError::Config("尚未配置中央库路径".to_string()));
@@ -285,7 +285,7 @@ pub fn skill_adopt(agent_id: String, dir_name: String) -> AppResult<AdoptResult>
 ///
 /// **执行顺序是安全关键**：先复制数据 → 再重写链接 → 最后才删旧数据。
 /// 详见 `links::relocate` 的文档。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn library_relocate(
     new_path: String,
     move_data: bool,

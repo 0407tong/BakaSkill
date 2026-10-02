@@ -61,8 +61,12 @@ export function SkillCard({
         "group flex min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-lg border bg-surface p-3",
         "transition-colors outline-none",
         "focus-visible:border-accent",
+        // 选中态必须带 `sh-card-selected`：`bg-accent-subtle/40` 是**半透明**的，
+        // 它会替换掉本来不透明的 `bg-surface`。铺了背景图时（图模式下面板本来就
+        // 半透明），卡片里的字就直接压在插画上，看不清——用户报的正是这个。
+        // `globals.css` 里给列表行补过同一条规则（`.sh-row-selected`），卡片漏了。
         selected
-          ? "border-accent bg-accent-subtle/40"
+          ? "sh-card-selected border-accent bg-accent-subtle/40"
           : "border-border hover:border-border-strong hover:bg-surface-hover",
         checked && !selected && "border-accent/50",
       )}

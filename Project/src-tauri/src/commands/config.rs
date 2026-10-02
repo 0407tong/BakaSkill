@@ -93,14 +93,14 @@ impl From<&ConfigView> for AppConfig {
 
 /// 读取当前配置。配置文件不存在时返回默认配置，而不是报错——
 /// "首次启动"不是异常情况。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn config_get() -> AppResult<ConfigView> {
     let config = config::load()?;
     Ok(ConfigView::from(&config))
 }
 
 /// 整体替换配置并落盘（原子写）
-#[tauri::command]
+#[tauri::command(async)]
 pub fn config_set(config: ConfigView) -> AppResult<ConfigView> {
     let mut model = AppConfig::from(&config);
     model.schema_version = config::CURRENT_SCHEMA_VERSION;

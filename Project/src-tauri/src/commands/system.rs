@@ -19,7 +19,7 @@ use serde::Serialize;
 ///
 /// 桌面端最常见的故障是 capabilities 权限漏配导致 invoke 报晦涩错误，
 /// 保留一个不依赖任何业务状态的探针能显著缩短这类问题的排查时间。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn ping() -> AppResult<PongPayload> {
     // 记录握手：这条日志是「前端 -> IPC -> Rust」链路可用的直接证据，
     // 也是 capabilities 权限漏配时最快的定位手段。

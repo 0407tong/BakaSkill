@@ -20,7 +20,7 @@ fn resolve_root(path: Option<String>) -> AppResult<PathBuf> {
 }
 
 /// 统计中央库里的标签及各自的 Skill 数
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tags_stats(path: Option<String>) -> AppResult<Vec<TagCount>> {
     tags::stats(&resolve_root(path)?)
 }
@@ -29,7 +29,7 @@ pub fn tags_stats(path: Option<String>) -> AppResult<Vec<TagCount>> {
 ///
 /// 一个入口覆盖三个界面动作（重命名 / 合并 / 删除）——它们本就是同一件事
 /// 的不同参数化，分成三条命令只会让三处各自演化出细微不同的行为。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn tags_apply(
     sources: Vec<String>,
     target: Option<String>,

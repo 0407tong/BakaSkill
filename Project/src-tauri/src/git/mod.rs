@@ -274,7 +274,7 @@ fn entry() -> AppResult<keyring::Entry> {
 }
 
 /// 保存 Token 到 Windows 凭据管理器
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_save_token(token: String) -> AppResult<GitAvailability> {
     let token = token.trim().to_string();
     if token.is_empty() {
@@ -369,7 +369,7 @@ fn find_gcm() -> Option<std::path::PathBuf> {
 }
 
 /// 查询系统上有哪些登录方式可用
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_login_methods() -> AppResult<LoginMethods> {
     let helper = run_git(None, &["config", "--system", "--get", "credential.helper"])
         .ok()
@@ -398,7 +398,7 @@ pub fn git_login_methods() -> AppResult<LoginMethods> {
 ///
 /// 这是一个**阻塞调用**——浏览器授权需要用户操作，可能耗时较久。
 /// 前端以 loading 状态呈现，并在完成后刷新状态。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_login_browser() -> AppResult<LoginMethods> {
     let gcm = find_gcm().ok_or_else(|| {
         AppError::Config(
@@ -420,14 +420,52 @@ pub fn git_login_browser() -> AppResult<LoginMethods> {
     //
     // 登录动作的本质就是交互，因此这里必须反过来显式声明：
     // 允许交互、并把 --browser 传明确，避免 GCM 走"自动选择"分支时被环境影响。
-    let output = git_cmd(&gcm, None)
+    let mut child = git_cmd(&gcm, None)
         .args(["github", "login", "--browser"])
         .env("GCM_INTERACTIVE", "always")
         .env_remove("GIT_TERMINAL_PROMPT")
         .env_remove("GIT_ASKPASS")
         .stdin(std::process::Stdio::null())
-        .output()
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
         .map_err(|err| AppError::Io(format!("无法启动 Git Credential Manager：{err}")))?;
+
+    // ⚠️ **必须有上限**。GCM 的浏览器流程会在本机起一个回环端口等回调，
+    // 而"用户把浏览器那页直接关掉"对它来说是**没有信号**的——它会一直等下去。
+    // 用户的体验是：页面叉掉之后按钮永远转圈（早先还会连带界面卡死，见下面
+    // 的 `(async)` 说明）。实测撞到过。
+    //
+    // 上限给得很宽：这是要人去浏览器里点同意的动作，慢一点是正常的，
+    // 宁可多等也不能把正常的授权掐掉。超时了就杀掉它并如实报错。
+    let deadline = std::time::Instant::now() + LOGIN_TIMEOUT;
+    let timed_out = loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break false,
+            Ok(None) if std::time::Instant::now() < deadline => {
+                std::thread::sleep(std::time::Duration::from_millis(200));
+            }
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                break true;
+            }
+            Err(_) => break false,
+        }
+    };
+
+    if timed_out {
+        return Err(AppError::Io(format!(
+            "等待浏览器授权超时（超过 {} 分钟）。\
+             如果刚才把授权页面关掉了，再点一次登录即可；\
+             也可以改用下方的手动 Token 登录。",
+            LOGIN_TIMEOUT.as_secs() / 60
+        )));
+    }
+
+    let output = child
+        .wait_with_output()
+        .map_err(|err| AppError::Io(format!("读取 Git Credential Manager 输出失败：{err}")))?;
 
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -584,7 +622,7 @@ fn delete_helper_credential_directly() {}
 ///   2. 改名之前遗留的旧条目；
 ///   3. 系统凭据助手里那份（**代价明说**：这台机器上其它地方用 git 推
 ///      GitHub 也要重新登录一次。界面上的确认框已经把这句话讲给用户了）。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_logout() -> AppResult<GitAvailability> {
     // 1) 本应用自己的凭据
     match entry()?.delete_credential() {
@@ -695,6 +733,13 @@ fn has_token() -> bool {
 /// （GCM 会去 GitHub 校验/刷新令牌）。这个代价只能付一次，
 /// 且必须封顶——否则登录按钮会无限期转圈。
 const TOKEN_EXCHANGE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(40);
+
+/// 浏览器授权登录的等待上限。
+///
+/// 给得很宽是有意的：这是要人去浏览器里点同意的动作，慢是正常的。
+/// 它的作用是**兜底**——用户把授权页直接关掉时 GCM 收不到任何信号、
+/// 会一直等下去，没有上限就永远转圈。
+const LOGIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// 取得用于 API 调用与出站请求的 Token，**只读本地凭据**。
 ///
@@ -818,7 +863,7 @@ fn credential_from_helper_bounded() -> Option<String> {
 ///
 /// **账号登录与 Token 登录都能用**：前者取系统凭据助手中的 OAuth Token，
 /// 后者取本应用保存的 PAT。用户不需要为了"看到仓库列表"而额外创建 Token。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_list_repos() -> AppResult<Vec<GitHubRepo>> {
     // 惰性补取：兼容"在缓存机制存在之前就已登录"的情况
     let token = if ensure_api_token() {
@@ -1122,7 +1167,7 @@ fn build_commit_message(added: &[String], modified: &[String], removed: &[String
 ///
 /// 状态一律取自**当前绑定仓库对应的同步工作区**，因为中央库本身已不再是
 /// git 仓库。没有绑定仓库时没有工作区可言，直接回一个"尚未同步"的空状态。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_sync_status() -> AppResult<SyncStatus> {
     let Ok(cfg) = crate::config::load() else {
         return Ok(SyncStatus::empty());
@@ -1769,7 +1814,7 @@ fn copy_dir_all(from: &Path, to: &Path) -> AppResult<()> {
 /// 一键同步：把中央库中本地有、仓库里没有（或有改动）的 Skill 传上去。
 ///
 /// **绝不删除仓库中已有的内容**，也不提交、不改动仓库里用户自己的文件。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_sync_now(library_path: String) -> AppResult<SyncStatus> {
     let target = resolve_target(&library_path)?;
     let (status, branch) = sync_impl(&target)?;
@@ -1953,7 +1998,7 @@ fn friendly_push_error(err: AppError, root: &Path) -> AppError {
 /// 它读的是工作区里 `skills/` 的当前内容，而 `refresh_workspace` 已经保证
 /// 工作区与远端一致——所以"仓库里的内容"就是"工作区里的内容"，
 /// 不需要去碰远端分支上其他无关的文件。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_pull(library_path: String) -> AppResult<SyncStatus> {
     let target = resolve_target(&library_path)?;
     let (status, branch) = pull_impl(&target)?;
@@ -2083,7 +2128,7 @@ fn ensure_commit_identity(root: &std::path::Path) -> AppResult<()> {
 }
 
 /// 同步面板的初始状态：git 是否可用、是否已登录、当前绑定的仓库
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_status() -> AppResult<GitAvailability> {
     Ok(read_availability())
 }
@@ -2092,7 +2137,7 @@ pub fn git_status() -> AppResult<GitAvailability> {
 ///
 /// 校验用 `git ls-remote`——它不需要本地有仓库，直接问远端
 /// "这个地址通不通、凭据够不够"，是成本最低的验证方式。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_set_remote(url: String, branch: Option<String>) -> AppResult<GitAvailability> {
     let url = url.trim().to_string();
     if url.is_empty() {
@@ -2171,7 +2216,7 @@ fn stale_repo_at(lib: &Path) -> Option<PathBuf> {
 /// 中央库中是否残留着旧模型留下的 `.git`。
 ///
 /// 返回的是那个 `.git` 的路径，供界面说明"要移走的是什么"。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_stale_repo(library_path: String) -> AppResult<Option<String>> {
     if library_path.trim().is_empty() {
         return Ok(None);
@@ -2182,7 +2227,7 @@ pub fn git_stale_repo(library_path: String) -> AppResult<Option<String>> {
 /// 把中央库中残留的 `.git` 移到一旁（重命名，**绝不删除**）。
 ///
 /// 返回它被移到了哪里；本来就没有残留则返回 `None`。
-#[tauri::command]
+#[tauri::command(async)]
 pub fn git_cleanup_stale_repo(library_path: String) -> AppResult<Option<String>> {
     if library_path.trim().is_empty() {
         return Ok(None);

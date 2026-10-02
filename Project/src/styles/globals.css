@@ -161,6 +161,15 @@
   background-color: var(--sh-accent-subtle);
 }
 
+/* 网格卡片被选中时：同上。
+   组件里写的是 `bg-accent-subtle/40`——**半透明**，而且它替换掉卡片本来
+   不透明的 `bg-surface`。图模式下应用底色是透明的，于是插画直接透进卡片，
+   卡片里的字看不清（用户报的"点一下就看不清了"就是这个）。
+   这里把它换成**不透明**的强调色。列表行早有这条规则，卡片当初漏了。 */
+:root[data-bg-image="on"] .sh-card-selected {
+  background-color: var(--sh-accent-subtle);
+}
+
 @theme inline {
   /* 颜色 */
   --color-bg: var(--sh-bg);
