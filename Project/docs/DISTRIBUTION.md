@@ -94,8 +94,15 @@ pnpm fetch:mingit
 
 1. **MinGit 自带 Git Credential Manager**（`ucrt64/bin/git-credential-manager.exe`），
    所以"用 GitHub 账号浏览器授权登录"这条路在没装 git 的机器上照样能走。
-2. 但那份 GCM **不含 .NET 运行时**，依赖系统安装的 .NET 桌面运行时。
-   机器上没有 .NET 时，浏览器登录会失败，**手动填 Token 仍然可用**。
+2. 那份 GCM 需要一个 .NET 运行时——但**不是要用户去装东西**：它依赖的是
+   **.NET Framework 4.7.2+**，而 .NET Framework 4.8 是 **Windows 10（1903 及以后）
+   与 Windows 11 自带的系统组件**，全新装的系统上就有。
+   实测确认：`git-credential-manager.exe` 的配置里写着
+   `.NETFramework,Version=v4.7.2`，`gcmcore.dll` 链接的是 `mscoree.dll`。
+   （本文档早先写作"依赖 .NET 桌面运行时"，那是把 .NET Framework 与 .NET 6/8
+   搞混了，已更正。）
+   只有极旧的 Windows 10（1903 以前）才可能缺它，那种机器上浏览器登录会失败、
+   手动填 Token 仍可用。
 3. Git 是 **GPLv2**。`mingit/LICENSE.txt` 随包分发，打包时不要把它排除掉。
 
 留尾：安装包因此从约 8 MB 涨到约 45 MB。**免安装版不再是单个文件**——
