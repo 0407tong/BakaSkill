@@ -11,6 +11,14 @@
 use std::ffi::OsStr;
 use std::process::Command;
 
+/// 转出 `Command` 类型本身。
+///
+/// 别的模块要**声明**一个返回 `Command` 的辅助函数时就得写这个类型名，而
+/// 审计测试（`tests/cross_platform.rs`）禁止 `platform/` 之外出现
+/// `std::process::Command` 字样——那是在防"绕过 `command()` 直接 `Command::new`"。
+/// 从这个模块转出去，既能写类型，又不会被误判为绕过。
+pub use std::process::Command as ProcessCommand;
+
 /// 建一个用于派生外部命令的 `Command`。
 ///
 /// # Windows：必须显式禁止为子进程创建控制台窗口

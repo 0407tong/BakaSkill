@@ -26,7 +26,7 @@ use crate::error::{AppError, AppResult};
 /// 平台差异按约定收敛在 `platform/`，见 `platform/process.rs`。
 ///
 /// **每一处派生都要走它**，漏一处就还会闪。
-use crate::platform::process::command as cmd;
+use crate::platform::process::{command as cmd, ProcessCommand};
 
 /// 凭据管理器中的服务名
 const KEYRING_SERVICE: &str = "com.bakaskill.app";
@@ -71,6 +71,52 @@ fn git_program() -> PathBuf {
         .get()
         .cloned()
         .unwrap_or_else(|| PathBuf::from("git"))
+}
+
+/// 自带 git 的根目录（`<root>/cmd/git.exe` 里那个 `<root>`）。没解析出来时为 `None`。
+fn bundled_git_root() -> Option<PathBuf> {
+    GIT_PROGRAM.get()?.parent()?.parent().map(Path::to_path_buf)
+}
+
+/// 派生 git 或 Git Credential Manager 时**统一走这个**，不要直接用 `cmd()`。
+///
+/// 它多做的两件事都是实测撞出来的，不是防御性编程：
+///
+/// 1. **把自带 git 的目录前置到子进程的 PATH 上**。GCM 自己会去调 `git`
+///    （`git version`、`git config --null --list`）。如果只把我们自己的调用指向
+///    自带的 git，而 GCM 仍旧按 PATH 去找，它可能找到系统上另一个 git——实测
+///    报错是一长串 `Shim: Could not create process ... Failed to enumerate all
+///    Git configuration entries`，登录按钮点了没反应。前置之后两者必然是同一套。
+///
+/// 2. **显式指定工作目录**。子进程默认继承父进程的当前目录，而应用自己的当前
+///    目录是启动时从快捷方式继承来的、我们控制不了：快捷方式的"起始位置"指向
+///    一个已不存在的目录时，子进程会创建失败。表现极具误导性——"明明装了 git，
+///    它却说找不到"。没有仓库上下文的调用一律落到临时目录。
+fn git_cmd(program: impl AsRef<std::ffi::OsStr>, cwd: Option<&Path>) -> ProcessCommand {
+    let mut command = cmd(program);
+    command.current_dir(
+        cwd.map(Path::to_path_buf)
+            .unwrap_or_else(std::env::temp_dir),
+    );
+
+    if let Some(root) = bundled_git_root() {
+        let mut dirs: Vec<PathBuf> = ["cmd", "ucrt64/bin", "mingw64/bin"]
+            .into_iter()
+            .map(|rel| root.join(rel))
+            .filter(|dir| dir.is_dir())
+            .collect();
+
+        if !dirs.is_empty() {
+            dirs.extend(std::env::split_paths(
+                &std::env::var_os("PATH").unwrap_or_default(),
+            ));
+            if let Ok(joined) = std::env::join_paths(dirs) {
+                command.env("PATH", joined);
+            }
+        }
+    }
+
+    command
 }
 
 /// 在候选位置里找自带的那份 git。
@@ -269,7 +315,10 @@ pub struct LoginMethods {
 /// shim 目录往往不包含 GCM，但二进制就在 git 安装目录的 `mingw64/bin` 下。
 fn find_gcm() -> Option<std::path::PathBuf> {
     // 1) PATH 上直接可执行
-    if let Ok(out) = cmd("git-credential-manager").arg("--version").output() {
+    if let Ok(out) = git_cmd("git-credential-manager", None)
+        .arg("--version")
+        .output()
+    {
         if out.status.success() {
             return Some(std::path::PathBuf::from("git-credential-manager"));
         }
@@ -348,7 +397,7 @@ pub fn git_login_browser() -> AppResult<LoginMethods> {
     //
     // 登录动作的本质就是交互，因此这里必须反过来显式声明：
     // 允许交互、并把 --browser 传明确，避免 GCM 走"自动选择"分支时被环境影响。
-    let output = cmd(&gcm)
+    let output = git_cmd(&gcm, None)
         .args(["github", "login", "--browser"])
         .env("GCM_INTERACTIVE", "always")
         .env_remove("GIT_TERMINAL_PROMPT")
@@ -413,7 +462,7 @@ fn forget_helper_credential() {
     /// 后面那次状态复读会把"没删干净"如实报出来。
     const ERASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-    let Ok(mut child) = cmd(git_program())
+    let Ok(mut child) = git_cmd(git_program(), None)
         .args(["credential", "reject"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
@@ -530,7 +579,7 @@ pub fn git_logout() -> AppResult<GitAvailability> {
     forget_helper_credential();
     if let Some(gcm) = find_gcm() {
         // 失败不阻断：本来就没登录时它会报错，这不是异常
-        let _ = cmd(&gcm).args(["github", "logout"]).output();
+        let _ = git_cmd(&gcm, None).args(["github", "logout"]).output();
     }
 
     // 上面两条路**都要能跑 git**（GCM 的查找本身也靠 `git --exec-path`）。
@@ -694,7 +743,7 @@ fn cache_helper_token() -> bool {
 fn credential_from_helper_bounded() -> Option<String> {
     use std::io::Write;
 
-    let mut child = cmd(git_program())
+    let mut child = git_cmd(git_program(), None)
         .args(["credential", "fill"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
@@ -789,10 +838,7 @@ pub fn git_list_repos() -> AppResult<Vec<GitHubRepo>> {
 ///
 /// `cwd` 为 `None` 时在无仓库上下文中执行（例如 `git --version`）。
 fn run_git(cwd: Option<&Path>, args: &[&str]) -> AppResult<String> {
-    let mut command = cmd(git_program());
-    if let Some(dir) = cwd {
-        command.current_dir(dir);
-    }
+    let mut command = git_cmd(git_program(), cwd);
     // 非交互：避免凭据缺失时卡在等待输入
     command.env("GIT_TERMINAL_PROMPT", "0");
     command.args(args);
@@ -874,6 +920,9 @@ fn is_git_available() -> Option<String> {
         Err(err) => {
             tracing::warn!(
                 %err,
+                cwd = %std::env::current_dir()
+                    .map(|dir| dir.display().to_string())
+                    .unwrap_or_else(|e| format!("(取不到当前目录：{e})")),
                 path = %std::env::var("PATH").unwrap_or_else(|_| "(读不到 PATH)".to_string()),
                 "检测 git 失败，界面将显示「未检测到 git」"
             );
@@ -1383,7 +1432,7 @@ pub fn clone_for_import(url: &str, dest: &Path) -> AppResult<()> {
 /// `-c core.autocrlf=false` 只作用于这一次 clone，让首次检出就是字节忠实的；
 /// 随后再把它写进仓库配置（见调用处），使之后每次操作都用同一套约定。
 fn clone_into(ws: &Path, url: &str) -> AppResult<()> {
-    let output = cmd(git_program())
+    let output = git_cmd(git_program(), None)
         .args(["-c", "core.autocrlf=false", "clone", url])
         .arg(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -1951,7 +2000,7 @@ fn fetch_identity() -> Option<(String, String)> {
 
     // 2) 退回 GCM 的账号列表（只有名字，没有 id）
     let gcm = find_gcm()?;
-    let out = cmd(&gcm).args(["github", "list"]).output().ok()?;
+    let out = git_cmd(&gcm, None).args(["github", "list"]).output().ok()?;
     if !out.status.success() {
         return None;
     }
