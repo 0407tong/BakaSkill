@@ -29,6 +29,7 @@ pub mod tags;
 pub mod transfer;
 pub mod uninstall;
 
+use tauri::Manager;
 use tauri_plugin_log::log::LevelFilter;
 
 use commands::{
@@ -111,7 +112,33 @@ pub fn run() {
             git::git_cleanup_stale_repo,
             fs_cmd::write_text_file,
         ])
-        .setup(|_app| {
+        .setup(|app| {
+            // 定下本进程用哪个 git：**随包自带的优先，系统装的兜底**。
+            // 同步功能建立在系统 git 之上，但"用户装了 git"不是能替他保证的事——
+            // 一个只想整理 Skill 的人不该为了备份去装 git。找不到自带的那份就
+            // 什么都不设，`git_program()` 会回退到 PATH 上的 `git`，与内置之前一样。
+            //
+            // 必须在任何 git 命令之前完成（`OnceLock` 只认第一次写入，晚了就改不了）。
+            #[allow(unused_mut)]
+            let mut resource_dir = app.path().resource_dir().ok();
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|exe| exe.parent().map(std::path::Path::to_path_buf));
+
+            // 开发模式下资源不会被拷进 target，改看源码目录下那份。
+            #[cfg(debug_assertions)]
+            if git::find_bundled_git(resource_dir.as_deref(), exe_dir.as_deref()).is_none() {
+                resource_dir = Some(std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+            }
+
+            if let Some(bundled) =
+                git::find_bundled_git(resource_dir.as_deref(), exe_dir.as_deref())
+            {
+                git::init_git_program(bundled);
+            } else {
+                tracing::info!("未找到随包自带的 git，改用系统 PATH 上的 git");
+            }
+
             // 这条日志同时验证两件事：日志插件已初始化，且
             // tracing -> log 的桥接确实生效（见 docs/ARCHITECTURE.md §6.5）。
             tracing::info!(

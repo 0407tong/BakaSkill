@@ -27,6 +27,7 @@
 | Rust | stable ≥ 1.80 | 本机实测 1.98.1，target `x86_64-pc-windows-msvc` |
 | MSVC 生成工具 | VS 2022 Build Tools（含 C++ 工作负载） | Rust 链接必需 |
 | WebView2 Runtime | 任意 | Windows 10/11 通常已预装 |
+| MinGit（**仅打包需要**） | 任意版本 | 放在 `src-tauri/mingit/`，随包分发。被 `.gitignore` 排除，**源码仓库里没有**——打包前必须自己放一份，见 [`docs/DISTRIBUTION.md`](docs/DISTRIBUTION.md) |
 
 ## 开发
 

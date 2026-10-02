@@ -15,6 +15,7 @@
 //! 填 Token，也可以复用已有的 GitHub 登录，两条路都不冲突。
 
 use std::path::{Path, PathBuf};
+use std::sync::OnceLock;
 
 use serde::{Deserialize, Serialize};
 
@@ -34,6 +35,72 @@ const KEYRING_SERVICE: &str = "com.bakaskill.app";
 const LEGACY_KEYRING_SERVICE: &str = "com.skillhub.app";
 /// 凭据管理器中的用户名（同一个服务下可存多条，用固定用户名即可）
 const KEYRING_USER: &str = "github-token";
+
+// ===========================================================================
+// 用哪个 git：自带的优先，系统装的兜底
+// ===========================================================================
+
+/// 本进程要用的 git 可执行文件。启动时由 `init_git_program()` 定下来。
+///
+/// # 为什么要有"自带"这一档
+///
+/// 同步功能建立在系统 git 之上，但**"这台机器上装了 git"不是用户能保证的事**。
+/// 一个只想整理 Skill 的人，不该为了备份而去装一套 git。所以应用随包带一份
+/// 便携版 Git（MinGit），找不到自带的才回退到系统 PATH 上的 `git`。
+///
+/// 用 `OnceLock` 而不是每次现查：解析要读 Tauri 的资源目录，而每次派 git 都去
+/// 走一遍文件系统探测是没必要的开销；而且**"用的是哪一个 git"必须全程一致**，
+/// 否则会出现"检测到的是自带的、执行时用的是系统的"这种查不清的错。
+static GIT_PROGRAM: OnceLock<PathBuf> = OnceLock::new();
+
+/// 定下本进程要用哪个 git。在应用启动时调一次。
+///
+/// 传进来的应当是**已经确认存在**的路径；调用方拿不到时不必调，`git_program()`
+/// 会回退到 PATH 上的 `git`。
+pub fn init_git_program(program: PathBuf) {
+    tracing::info!(git = %program.display(), "使用这个 git 可执行文件");
+    let _ = GIT_PROGRAM.set(program);
+}
+
+/// 本进程要用的 git。
+///
+/// 没被 `init_git_program()` 设定过（例如单元测试、或启动时没找到自带的那份）
+/// 就回退到裸的 `git`，由系统 PATH 解析——与内置之前的行为一模一样。
+fn git_program() -> PathBuf {
+    GIT_PROGRAM
+        .get()
+        .cloned()
+        .unwrap_or_else(|| PathBuf::from("git"))
+}
+
+/// 在候选位置里找自带的那份 git。
+///
+/// 传 `resource_dir` 与 `exe_dir` 而不是在这里问 Tauri：这个函数要能被单元测试
+/// 直接喂目录跑，而 Tauri 的路径 API 离不开运行时。开发模式下资源不会被拷进
+/// target，由调用方（`lib.rs`）改传源码目录，这里依旧只认"根目录"这一个概念。
+///
+/// 候选里同时留着 `git/` 与 `mingit/` 两种目录名，是因为**打包后资源落在哪一层
+/// 取决于打包配置**（见 `tauri.conf.json` 的 `bundle.resources`）。这里多做一次
+/// 探测的成本可以忽略，而"打包布局和代码假设不一致导致同步整个不可用"不行。
+pub fn find_bundled_git(resource_dir: Option<&Path>, exe_dir: Option<&Path>) -> Option<PathBuf> {
+    /// 便携版 Git 里 git 可执行文件的相对位置。
+    /// `cmd/git.exe` 是 Git for Windows 给用户用的入口（它会转发到 `ucrt64/bin`），
+    /// 两种布局下都在同一个相对位置。
+    const RELATIVE: &str = "cmd/git.exe";
+
+    let roots = [
+        resource_dir.map(|dir| dir.join("mingit")),
+        resource_dir.map(|dir| dir.join("git")),
+        exe_dir.map(|dir| dir.join("mingit")),
+        exe_dir.map(|dir| dir.join("git")),
+    ];
+
+    roots
+        .into_iter()
+        .flatten()
+        .map(|root| root.join(RELATIVE))
+        .find(|candidate| candidate.is_file())
+}
 
 /// 从仓库导入 Skill 时的暂存目录前缀。
 ///
@@ -346,7 +413,7 @@ fn forget_helper_credential() {
     /// 后面那次状态复读会把"没删干净"如实报出来。
     const ERASE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(10);
 
-    let Ok(mut child) = cmd("git")
+    let Ok(mut child) = cmd(git_program())
         .args(["credential", "reject"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
@@ -386,6 +453,48 @@ fn forget_helper_credential() {
     }
 }
 
+/// 直接删掉 Windows 凭据管理器里那条 GitHub 凭据。**不依赖 git。**
+///
+/// # 为什么需要这条路
+///
+/// `forget_helper_credential()` 走的是凭据协议，好处是"凭据存在哪里"由助手
+/// 自己决定、换了助手也对——代价是**它要能跑 git**。而"这台机器上有没有装
+/// git"本来就不是用户能保证的事（界面上那张「未检测到 git」卡片正是为这种
+/// 情况准备的）。没有 git 时退出登录整个走不通，用户就又回到"退不掉"。
+///
+/// GCM 在 Windows 上把凭据存成一条目标名为 `git:https://github.com` 的通用
+/// 凭据，`cmdkey` 是系统自带工具，删它不需要 git 参与。
+#[cfg(windows)]
+fn delete_helper_credential_directly() {
+    /// GCM 在 Windows 凭据管理器里的目标名（不受界面语言影响）
+    const CREDENTIAL_TARGET: &str = "git:https://github.com";
+
+    match cmd("cmdkey")
+        .arg(format!("/delete:{CREDENTIAL_TARGET}"))
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            tracing::info!(
+                target = CREDENTIAL_TARGET,
+                "已直接删除凭据管理器中的 GitHub 凭据"
+            );
+        }
+        // 删不掉多半是"本来就没有这一条"，不是异常
+        Ok(out) => {
+            tracing::debug!(
+                target = CREDENTIAL_TARGET,
+                stderr = %String::from_utf8_lossy(&out.stderr).trim(),
+                "cmdkey 未删除该凭据"
+            );
+        }
+        Err(err) => tracing::warn!(%err, "无法运行 cmdkey"),
+    }
+}
+
+/// 非 Windows 平台没有 Windows 凭据管理器，也不需要这条路。
+#[cfg(not(windows))]
+fn delete_helper_credential_directly() {}
+
 /// 退出 GitHub 登录：把本应用与系统凭据助手里保存的 GitHub 凭据**全部**清掉。
 ///
 /// # 为什么必须一起清
@@ -422,6 +531,15 @@ pub fn git_logout() -> AppResult<GitAvailability> {
     if let Some(gcm) = find_gcm() {
         // 失败不阻断：本来就没登录时它会报错，这不是异常
         let _ = cmd(&gcm).args(["github", "logout"]).output();
+    }
+
+    // 上面两条路**都要能跑 git**（GCM 的查找本身也靠 `git --exec-path`）。
+    // 而同步功能依赖系统 git 只是本应用的一个前提，不是用户的义务——
+    // 没装 git 的机器上这两步一步都走不了，退出登录就会卡在"退不掉"，
+    // 那正是用户报过的缺陷。所以这里补一条不依赖 git 的路：直接删凭据管理器
+    // 里那条（`cmdkey` 是系统自带工具）。
+    if has_helper_credentials() {
+        delete_helper_credential_directly();
     }
 
     // **重新读一次真实状态**再回给界面。上面任何一步都可能无声地没生效，
@@ -576,7 +694,7 @@ fn cache_helper_token() -> bool {
 fn credential_from_helper_bounded() -> Option<String> {
     use std::io::Write;
 
-    let mut child = cmd("git")
+    let mut child = cmd(git_program())
         .args(["credential", "fill"])
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GCM_INTERACTIVE", "never")
@@ -671,7 +789,7 @@ pub fn git_list_repos() -> AppResult<Vec<GitHubRepo>> {
 ///
 /// `cwd` 为 `None` 时在无仓库上下文中执行（例如 `git --version`）。
 fn run_git(cwd: Option<&Path>, args: &[&str]) -> AppResult<String> {
-    let mut command = cmd("git");
+    let mut command = cmd(git_program());
     if let Some(dir) = cwd {
         command.current_dir(dir);
     }
@@ -742,10 +860,26 @@ fn redact(text: &str) -> String {
     out
 }
 
+/// 系统上有没有可用的 git。
+///
+/// 失败时**必须留下日志**。这个函数的返回值直接决定界面上那张「未检测到 git」
+/// 卡片，而它的失败原因此前被 `.ok()` 吞掉了——于是用户报"它说我没装 git，
+/// 可我的 git 明明是好的"时，日志里一个字都没有，无从查起。实测撞到过一次。
+///
+/// 顺带把 PATH 记下来：spawn 失败最常见的原因就是进程的 PATH 与用户 shell
+/// 里的不一致，而那正好是这一行能直接给出答案的。
 fn is_git_available() -> Option<String> {
-    run_git(None, &["--version"])
-        .ok()
-        .map(|s| s.trim().to_string())
+    match run_git(None, &["--version"]) {
+        Ok(out) => Some(out.trim().to_string()),
+        Err(err) => {
+            tracing::warn!(
+                %err,
+                path = %std::env::var("PATH").unwrap_or_else(|_| "(读不到 PATH)".to_string()),
+                "检测 git 失败，界面将显示「未检测到 git」"
+            );
+            None
+        }
+    }
 }
 
 /// 读取当前同步配置与可用性
@@ -1249,7 +1383,7 @@ pub fn clone_for_import(url: &str, dest: &Path) -> AppResult<()> {
 /// `-c core.autocrlf=false` 只作用于这一次 clone，让首次检出就是字节忠实的；
 /// 随后再把它写进仓库配置（见调用处），使之后每次操作都用同一套约定。
 fn clone_into(ws: &Path, url: &str) -> AppResult<()> {
-    let output = cmd("git")
+    let output = cmd(git_program())
         .args(["-c", "core.autocrlf=false", "clone", url])
         .arg(ws)
         .env("GIT_TERMINAL_PROMPT", "0")
@@ -2015,6 +2149,52 @@ pub fn git_cleanup_stale_repo(library_path: String) -> AppResult<Option<String>>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 随包自带的 git 要能在**两种**资源布局下被找到，找不到时如实回退。
+    ///
+    /// 为什么值得一条测试守着：这个函数的返回值决定"同步功能能不能用"。
+    /// 而它的输入来自打包配置——**打包布局变了而代码没跟着变**，表现是所有
+    /// 用户都回到"未检测到 git"，而那正是要消灭的状态。
+    #[test]
+    fn bundled_git_is_found_in_every_packaging_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let resources = tmp.path().join("resources");
+
+        // 两种目录名各试一次：资源落在 `mingit/` 还是 `git/` 取决于打包配置
+        for name in ["mingit", "git"] {
+            let cmd_dir = resources.join(name).join("cmd");
+            std::fs::create_dir_all(&cmd_dir).unwrap();
+            std::fs::write(cmd_dir.join("git.exe"), b"").unwrap();
+
+            let found = find_bundled_git(Some(&resources), None);
+            assert_eq!(
+                found,
+                Some(cmd_dir.join("git.exe")),
+                "资源布局 `{name}/` 下的 git 没被找到"
+            );
+
+            std::fs::remove_dir_all(resources.join(name)).unwrap();
+        }
+
+        // 没有自带的那份时必须返回 None——调用方据此回退到系统 git，
+        // 而不是拿着一个不存在的路径去派生进程。
+        let empty = tempfile::tempdir().unwrap();
+        assert_eq!(find_bundled_git(Some(empty.path()), None), None);
+    }
+
+    /// 便携版（免安装）把 git 放在 exe 旁边，也要能认出来。
+    #[test]
+    fn bundled_git_next_to_the_executable_is_found() {
+        let tmp = tempfile::tempdir().unwrap();
+        let cmd_dir = tmp.path().join("mingit").join("cmd");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        std::fs::write(cmd_dir.join("git.exe"), b"").unwrap();
+
+        assert_eq!(
+            find_bundled_git(None, Some(tmp.path())),
+            Some(cmd_dir.join("git.exe"))
+        );
+    }
 
     #[test]
     fn redact_strips_inline_credentials() {

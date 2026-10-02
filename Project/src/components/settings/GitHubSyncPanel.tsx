@@ -95,11 +95,16 @@ export function GitHubSyncPanel() {
           <div className="flex items-start gap-2 rounded-md border border-danger/40 bg-danger-subtle p-3 text-sm text-danger">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <div className="space-y-1">
-              <p className="font-medium">未检测到 git</p>
+              <p className="font-medium">没找到可用的 git</p>
               <p className="text-xs leading-relaxed">
-                GitHub 同步依赖系统上的 git 命令行工具。 请先安装（
+                本应用<strong>自带</strong>一份便携版
+                git，正常不该出现这个提示。
+                出现通常说明程序被单独拷走了——免安装版需要把{" "}
+                <code className="font-mono">mingit</code>{" "}
+                目录一起带走，安装版请重新安装一次。 也可以装一个系统 git
+                作为兜底（
                 <code className="font-mono">winget install Git.Git</code>
-                ）后重开本应用。
+                ），重开本应用即可。
               </p>
             </div>
           </div>

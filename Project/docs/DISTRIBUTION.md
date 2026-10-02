@@ -64,6 +64,36 @@ NSIS 与 WiX 工具链**不随 Tauri CLI 分发**，而是在首次打包时下�
 
 当前三处均为 `0.1.0`。
 
+### 便携版 Git 从哪来（打包的必备前提）
+
+应用**随包带一份便携版 Git（MinGit）**，同步功能优先用它，找不到才回退到系统
+PATH 上的 `git`。原因很直接：同步建立在 git 之上，但"用户装了 git"不是能替他
+保证的事——一个只想整理 Skill 的人不该为了备份去装一套 git。
+
+它放在 `src-tauri/mingit/`，**被 `.gitignore` 排除**（93 MB、约 1000 个文件），
+与 Tauri 自己的 NSIS/WiX 工具链同理：属于构建期依赖，不随源码仓库分发。
+**源码仓库里没有它，打包前必须自己放一份**，否则打出来的包缺少自带 git，
+所有用户都会看到「没找到可用的 git」。
+
+获取方式（版本可换，与 `git --version` 无关，应用不依赖特定版本）：
+
+```bash
+curl -L -o mingit.zip \
+  https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.1/MinGit-2.56.0-64-bit.zip
+unzip -q mingit.zip -d src-tauri/mingit
+```
+
+三个需要知道的事实：
+
+1. **MinGit 自带 Git Credential Manager**（`ucrt64/bin/git-credential-manager.exe`），
+   所以"用 GitHub 账号浏览器授权登录"这条路在没装 git 的机器上照样能走。
+2. 但那份 GCM **不含 .NET 运行时**，依赖系统安装的 .NET 桌面运行时。
+   机器上没有 .NET 时，浏览器登录会失败，**手动填 Token 仍然可用**。
+3. Git 是 **GPLv2**。`mingit/LICENSE.txt` 随包分发，打包时不要把它排除掉。
+
+留尾：安装包因此从约 8 MB 涨到约 45 MB。**免安装版不再是单个文件**——
+`bakaskill.exe` 需要与 `mingit/` 目录放在一起（`exe` 旁边或资源目录下都认）。
+
 ---
 
 ## 2. 安装包未签名
