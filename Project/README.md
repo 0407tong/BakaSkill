@@ -33,6 +33,7 @@
 
 ```bash
 pnpm install          # 安装依赖
+pnpm fetch:mingit     # 拉取随包分发的便携版 git（不在源码仓库里，首次必跑）
 pnpm tauri:dev        # 启动桌面应用（开发模式）
 pnpm tauri:build      # 打包安装程序（NSIS + MSI）
 ```

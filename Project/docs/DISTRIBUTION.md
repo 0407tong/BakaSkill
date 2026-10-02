@@ -75,13 +75,20 @@ PATH 上的 `git`。原因很直接：同步建立在 git 之上，但"用户装
 **源码仓库里没有它，打包前必须自己放一份**，否则打出来的包缺少自带 git，
 所有用户都会看到「没找到可用的 git」。
 
-获取方式（版本可换，与 `git --version` 无关，应用不依赖特定版本）：
+获取方式（一条命令，幂等）：
 
 ```bash
-curl -L -o mingit.zip \
-  https://github.com/git-for-windows/git/releases/download/v2.56.0.windows.1/MinGit-2.56.0-64-bit.zip
-unzip -q mingit.zip -d src-tauri/mingit
+cd Project
+pnpm fetch:mingit
 ```
+
+它下载并解压同一份 MinGit；已就位就跳过。想换版本或手动装，地址在
+`scripts/fetch-mingit.mjs` 顶部；版本与应用无关，应用不依赖特定版本。
+
+`pnpm tauri:build` / `pnpm tauri:dev` 之前会先跑一条守卫
+（`scripts/check-mingit.mjs`）：缺了这份 git 就停下并告诉你怎么办。
+没有它的话，Tauri 报的是一句 `resource path 'mingit' doesn't exist`——
+既没说这是什么，也没说从哪来。
 
 三个需要知道的事实：
 
