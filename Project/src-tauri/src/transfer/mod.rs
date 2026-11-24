@@ -704,6 +704,28 @@ struct ScanResult {
     invalid: Vec<InvalidCandidate>,
 }
 
+/// 推导压缩包去掉扩展名后的目录名（特别处理 `.tar.gz` 这类双扩展名）。
+fn archive_stem(path: &Path) -> String {
+    let raw_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_default();
+    let lower = raw_name.to_ascii_lowercase();
+    let stem = if lower.ends_with(".tar.gz") && raw_name.len() > ".tar.gz".len() {
+        raw_name[..raw_name.len() - ".tar.gz".len()].to_string()
+    } else {
+        path.file_stem()
+            .map(|s| s.to_string_lossy().to_string())
+            .unwrap_or_default()
+    };
+    let trimmed = stem.trim();
+    if trimmed.is_empty() {
+        "skill".to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
 /// 把来源收拢到暂存目录
 fn collect_source(source: &ImportSource, staging: &Path) -> AppResult<()> {
     match source {
@@ -715,7 +737,13 @@ fn collect_source(source: &ImportSource, staging: &Path) -> AppResult<()> {
                     src.display()
                 )));
             }
-            copy_tree(&src, staging)
+            // 保留源文件夹本身的名字，避免导入单个 Skill 文件夹时把暂存区 token 当成目录名
+            let folder_name = src
+                .file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .filter(|n| !n.trim().is_empty())
+                .unwrap_or_else(|| "skill".to_string());
+            copy_tree(&src, &staging.join(folder_name))
         }
         ImportSource::Zip { path } => {
             let archive = PathBuf::from(path);
@@ -725,7 +753,10 @@ fn collect_source(source: &ImportSource, staging: &Path) -> AppResult<()> {
                     archive.display()
                 )));
             }
-            extract_archive(&archive, staging)
+            // 解压到以压缩包名为名的子目录：包内自带顶层目录时仍按内层名识别，
+            // 根目录直接放 SKILL.md 时则自然沿用压缩包名而非随机暂存 token。
+            let dest = staging.join(archive_stem(&archive));
+            extract_archive(&archive, &dest)
         }
         ImportSource::Git { url } => {
             let dest = staging.join("repo");
@@ -2184,5 +2215,46 @@ mod tests {
                 "冲突信息应当指向中央库里那一份"
             );
         }
+    }
+
+    #[test]
+    fn single_skill_folder_preserves_its_own_dir_name() {
+        let (tmp, lib) = setup();
+        let single = tmp.path().join("my-paper-skill");
+        write_skill(&single, "---\nname: my-paper-skill\n---\n正文\n");
+
+        let preview = preview_paths(&lib, &[single.display().to_string()]).unwrap();
+        assert_eq!(preview.candidates.len(), 1);
+        assert_eq!(preview.candidates[0].dir_name, "my-paper-skill");
+
+        let report = apply(
+            &lib,
+            &preview.token,
+            &[ImportDecision {
+                relative_path: preview.candidates[0].relative_path.clone(),
+                action: ImportAction::Overwrite,
+            }],
+        )
+        .unwrap();
+        assert_eq!(report.imported, 1);
+        assert!(lib.join("skills/my-paper-skill/SKILL.md").is_file());
+    }
+
+    #[test]
+    fn flat_archive_uses_archive_stem_as_dir_name() {
+        let (tmp, lib) = setup();
+        let zip_path = tmp.path().join("flat-skill.zip");
+        {
+            let file = std::fs::File::create(&zip_path).unwrap();
+            let mut zip = zip::ZipWriter::new(file);
+            let options = zip::write::SimpleFileOptions::default();
+            zip.start_file("SKILL.md", options).unwrap();
+            std::io::Write::write_all(&mut zip, b"---\nname: flat-skill\n---\nbody\n").unwrap();
+            zip.finish().unwrap();
+        }
+
+        let preview = preview_paths(&lib, &[zip_path.display().to_string()]).unwrap();
+        assert_eq!(preview.candidates.len(), 1);
+        assert_eq!(preview.candidates[0].dir_name, "flat-skill");
     }
 }
