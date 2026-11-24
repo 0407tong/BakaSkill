@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { SkillListItem } from "@/components/skill/SkillListItem";
 import { useSkillStore } from "@/store/skillStore";
-import type { SkillSummary } from "@/types/ipc";
+import type { AgentDetection, LinkState, SkillSummary } from "@/types/ipc";
 
 /** 首次渲染的行高估值，真实值由 measureElement 实测 */
 const ESTIMATED_ROW_HEIGHT = 45;
@@ -16,6 +16,9 @@ export interface SkillListProps {
   snippets?: ReadonlyMap<string, string>;
   /** 用于高亮的关键词 */
   keywords?: string;
+  activeAgentId?: string | null;
+  agentStates?: ReadonlyMap<string, LinkState> | null;
+  readyAgents?: readonly AgentDetection[];
 }
 
 /**
@@ -31,6 +34,9 @@ export function SkillList({
   onSelect,
   snippets,
   keywords,
+  activeAgentId,
+  agentStates,
+  readyAgents,
 }: SkillListProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const checkedIds = useSkillStore((s) => s.selectedIds);
@@ -70,6 +76,9 @@ export function SkillList({
                 onToggleChecked={toggleChecked}
                 snippet={snippets?.get(skill.id)}
                 keywords={keywords}
+                activeAgentId={activeAgentId}
+                activeAgentState={agentStates?.get(skill.id)}
+                readyAgents={readyAgents}
               />
             </div>
           );

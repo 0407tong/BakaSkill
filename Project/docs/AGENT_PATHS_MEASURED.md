@@ -11,6 +11,7 @@
 
 | Agent | 候选路径 | 实测结论 | 置信度变化 |
 | --- | --- | --- | --- |
+| **Antigravity** | `%USERPROFILE%\.gemini\config\skills`（兼容 `\.gemini\antigravity\skills` / `global_skills`） | ⚠️ **本机已安装**（`~/.gemini/antigravity` 与 `~/.gemini/config` 均存在），全局 `skills` 目录按需创建 | 新增 → **已实测** |
 | **Codex** | `%USERPROFILE%\.codex\skills` | ✅ **确认存在且有效**，内含真实 SKILL.md | 低 → **已证实** |
 | **Claude Code** | `%USERPROFILE%\.claude\skills` | ⚠️ **本机不存在**（Agent 已装，但尚未添加过用户 Skill） | 高 → **待观察** |
 | **Trae** | `%USERPROFILE%\.trae\skills` | ❌ **不存在**。`~/.trae` 是 VS Code 系布局 | 低 → **已证伪** |

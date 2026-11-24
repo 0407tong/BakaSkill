@@ -92,6 +92,10 @@ pub struct AgentDetection {
     pub detected_by: Vec<String>,
     /// 是否是用户在设置里手动指定的路径
     pub is_user_override: bool,
+    /// 是否是用户自定义的 Agent（不在内置注册表中）
+    pub is_custom: bool,
+    /// 是否启用（在设置页移除内置 Agent 时会置为 false）
+    pub enabled: bool,
     pub notes: Option<String>,
     pub docs_url: Option<String>,
 }
@@ -153,6 +157,8 @@ pub fn detect(descriptor: &AgentDescriptor, user_override: Option<&str>) -> Agen
             skill_dir: Some(dir.to_string()),
             detected_by,
             is_user_override: true,
+            is_custom: false,
+            enabled: true,
             notes: descriptor.notes.clone(),
             docs_url: descriptor.docs_url.clone(),
         };
@@ -192,6 +198,8 @@ pub fn detect(descriptor: &AgentDescriptor, user_override: Option<&str>) -> Agen
             skill_dir: None,
             detected_by,
             is_user_override: false,
+            is_custom: false,
+            enabled: true,
             notes: descriptor.notes.clone(),
             docs_url: descriptor.docs_url.clone(),
         };
@@ -216,6 +224,8 @@ pub fn detect(descriptor: &AgentDescriptor, user_override: Option<&str>) -> Agen
                 skill_dir: Some(candidate.display().to_string()),
                 detected_by,
                 is_user_override: false,
+                is_custom: false,
+                enabled: true,
                 notes: descriptor.notes.clone(),
                 docs_url: descriptor.docs_url.clone(),
             };
@@ -232,6 +242,8 @@ pub fn detect(descriptor: &AgentDescriptor, user_override: Option<&str>) -> Agen
         skill_dir: first_candidate.map(|p| p.display().to_string()),
         detected_by,
         is_user_override: false,
+        is_custom: false,
+        enabled: true,
         notes: descriptor.notes.clone(),
         docs_url: descriptor.docs_url.clone(),
     }
@@ -302,8 +314,26 @@ mod tests {
     #[test]
     fn embedded_registry_parses() {
         let all = registry().expect("内置注册表必须可解析");
+        assert!(all.iter().any(|a| a.id == "antigravity"));
         assert!(all.iter().any(|a| a.id == "claude-code"));
         assert!(all.iter().any(|a| a.id == "codex"));
+    }
+
+    #[test]
+    fn antigravity_has_expected_candidates() {
+        let ag = registry()
+            .unwrap()
+            .into_iter()
+            .find(|a| a.id == "antigravity")
+            .expect("内置注册表应包含 antigravity");
+        assert_eq!(ag.display_name, "Antigravity");
+        assert!(
+            ag.skill_dir_candidates
+                .iter()
+                .any(|p| p.ends_with(r"\.gemini\config\skills")),
+            "应包含 Antigravity 全局技能目录候选：{:?}",
+            ag.skill_dir_candidates
+        );
     }
 
     /// Codex 的技能嵌套在分组目录里，深度必须为 2

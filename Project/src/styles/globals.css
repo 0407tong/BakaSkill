@@ -108,19 +108,50 @@
 
 :root[data-bg-image="on"].dark {
   --sh-bg-subtle: oklch(
-    21% 0.009 260 / calc(var(--sh-panel-alpha, 0.78) - 0.1)
+    18% 0.009 260 / calc(var(--sh-panel-alpha, 0.78) - 0.04)
   );
-  --sh-surface: oklch(23% 0.009 260 / var(--sh-panel-alpha, 0.78));
+  --sh-surface: oklch(
+    21.5% 0.01 260 / calc(var(--sh-panel-alpha, 0.78) + 0.04)
+  );
   --sh-surface-hover: oklch(
-    27.5% 0.011 260 / calc(var(--sh-panel-alpha, 0.78) + 0.14)
+    26.5% 0.012 260 / calc(var(--sh-panel-alpha, 0.78) + 0.14)
   );
-  --sh-border: oklch(31% 0.01 260 / 0.7);
+  --sh-border: oklch(100% 0 0 / 0.1);
+  --sh-border-strong: oklch(100% 0 0 / 0.18);
+}
+
+/* 背景图在夜间模式下同步降低亮度与饱和度，避免亮色插画刺眼、冲淡暗色界面对比度 */
+.sh-bg-img {
+  transition:
+    filter 200ms ease,
+    opacity 150ms ease;
+}
+.dark .sh-bg-img {
+  filter: brightness(0.36) contrast(1.06) saturate(0.82);
+}
+
+.sh-bg-scrim {
+  background: linear-gradient(
+    to bottom,
+    oklch(100% 0 0 / 0.24),
+    oklch(100% 0 0 / 0.12) 45%,
+    oklch(100% 0 0 / 0.22)
+  );
+  transition: background 200ms ease;
+}
+.dark .sh-bg-scrim {
+  background: linear-gradient(
+    to bottom,
+    oklch(12% 0.01 260 / 0.56),
+    oklch(12% 0.01 260 / 0.44) 45%,
+    oklch(10% 0.01 260 / 0.66)
+  );
 }
 
 /* 磨砂只给**结构性大面板**，由组件显式加 `.sh-frost` 类来要。
    不给卡片加：列表里可能有上千张卡片，逐个 backdrop-filter 会明显拖慢滚动。 */
 :root[data-bg-image="on"] .sh-frost {
-  backdrop-filter: blur(14px) saturate(1.15);
+  backdrop-filter: blur(16px) saturate(1.2);
 }
 
 /* --------------------------------------------------------------------------
@@ -138,11 +169,13 @@
    -------------------------------------------------------------------------- */
 :root[data-bg-image="on"] .sh-plate {
   background-color: var(--sh-surface);
+  backdrop-filter: blur(12px) saturate(1.15);
 }
 
-/* 批量操作栏自带一层强调色，图模式下要的是**不透明**的那一档 */
+/* 批量操作栏自带一层强调色，图模式下保持清晰可读的融合材质 */
 :root[data-bg-image="on"] .sh-plate-accent {
-  background-color: var(--sh-accent-subtle);
+  background-color: var(--sh-surface);
+  backdrop-filter: blur(12px) saturate(1.15);
 }
 
 /* 列表视图的行：给它和网格卡片同款的半透明底。

@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Cpu,
   Database,
   FileText,
   FolderTree,
@@ -18,10 +19,17 @@ import { Suspense, lazy, useState } from "react";
 import { EmptyState } from "@/components/EmptyState";
 import { INSTANCE_KIND_META } from "@/components/skill/SkillBadges";
 import { UninstallDialog } from "@/components/skill/UninstallDialog";
-import { useAdoptSkill, useConfig, useSkillsScan } from "@/lib/queries";
+import { Switch } from "@/components/ui/Switch";
+import {
+  useAdoptSkill,
+  useConfig,
+  useLinkMatrix,
+  useSetLinkEnabled,
+  useSkillsScan,
+} from "@/lib/queries";
 import { useSkillStore } from "@/store/skillStore";
 import { useViewStore } from "@/store/viewStore";
-import type { ScannedInstance, SkillSummary } from "@/types/ipc";
+import type { LinkCell, ScannedInstance, SkillSummary } from "@/types/ipc";
 
 /**
  * Monaco 按需加载。
@@ -117,7 +125,7 @@ function SkillDetail({
         </div>
 
         <p className="text-sm leading-relaxed text-fg-muted">
-          {skill.description ?? "（无描述）"}
+          {skill.description ?? "暂无描述"}
         </p>
 
         {skill.tags.length > 0 ? (
@@ -159,10 +167,13 @@ function SkillDetail({
               onClick={() => setUninstallOpen(true)}
             >
               <Trash2 className="size-3.5" />
-              卸载（移出中央库）
+              卸载
             </Button>
           ) : null}
         </section>
+
+        {/* 各 Agent 独立启停 —— 仅当 Skill 在中央库时可用 */}
+        {skill.inCentralLibrary ? <AgentSwitchList skill={skill} /> : null}
 
         {/* 各 Agent 中的实例 —— 链接映射矩阵的核心信息 */}
         <section className="space-y-1.5">
@@ -262,7 +273,7 @@ function InstanceRow({ instance }: { instance: ScannedInstance }) {
       {instance.group ? (
         <div className="mt-0.5 text-[10px] text-fg-subtle">
           分组：{instance.group}
-          {instance.isSystemGroup ? "（内置）" : ""}
+          {instance.isSystemGroup ? " · 内置" : ""}
         </div>
       ) : null}
 
@@ -324,5 +335,80 @@ function InstanceRow({ instance }: { instance: ScannedInstance }) {
         </div>
       ) : null}
     </li>
+  );
+}
+
+/**
+ * 详情面板内的按 Agent 独立启停开关。
+ *
+ * 仅对已纳入中央库的 Skill 展示，让用户在查看详情时无需跳转页面
+ * 就能把当前 Skill 单独启用或禁用在某一个 Agent 上。
+ */
+function AgentSwitchList({ skill }: { skill: SkillSummary }) {
+  const matrix = useLinkMatrix();
+  const setEnabled = useSetLinkEnabled();
+  const agents = matrix.data?.agents ?? [];
+
+  if (agents.length === 0) return null;
+
+  const row = matrix.data?.rows.find((r) => r.skillId === skill.id);
+  const cellByAgent = new Map<string, LinkCell>();
+  for (const cell of row?.cells ?? []) {
+    cellByAgent.set(cell.agentId, cell);
+  }
+
+  return (
+    <section className="space-y-1.5">
+      <h3 className="flex items-center gap-1.5 text-xs font-medium text-fg-subtle">
+        <Cpu className="size-3.5" />按 Agent 启停
+      </h3>
+      <ul className="space-y-1">
+        {agents.map((agent) => {
+          const cell = cellByAgent.get(agent.id);
+          const state = cell?.state ?? "absent";
+          const checked = state === "valid";
+          const canToggle =
+            state === "valid" || state === "absent" || state === "dangling";
+
+          return (
+            <li
+              key={agent.id}
+              className="flex items-center justify-between gap-2 rounded-lg border border-border bg-bg-subtle px-2.5 py-1.5"
+            >
+              <div className="min-w-0">
+                <div className="truncate text-xs font-medium text-fg">
+                  {agent.displayName}
+                </div>
+                {state === "conflict" ? (
+                  <div className="text-[10px] text-warning">
+                    位置被真实目录占用
+                  </div>
+                ) : state === "foreignLink" || state === "foreignSymlink" ? (
+                  <div className="text-[10px] text-info">外部链接，不代管</div>
+                ) : state === "dangling" ? (
+                  <div className="text-[10px] text-danger">
+                    断链（打开即可重建）
+                  </div>
+                ) : null}
+              </div>
+
+              <Switch
+                size="sm"
+                checked={checked}
+                disabled={!canToggle || setEnabled.isPending}
+                aria-label={`在 ${agent.displayName} 中${checked ? "禁用" : "启用"} ${skill.name}`}
+                onCheckedChange={(enabled) =>
+                  setEnabled.mutate({
+                    skillDirName: skill.dirName,
+                    agentIds: [agent.id],
+                    enabled,
+                  })
+                }
+              />
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

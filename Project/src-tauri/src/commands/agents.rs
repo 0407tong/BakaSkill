@@ -20,12 +20,12 @@ pub fn agents_detect() -> AppResult<Vec<AgentDetection>> {
     let detections: Vec<AgentDetection> = descriptors
         .iter()
         .map(|descriptor| {
-            let override_dir = cfg
-                .agents
-                .iter()
-                .find(|a| a.id == descriptor.id)
-                .and_then(|a| a.skill_dir.as_deref());
-            agents::detect(descriptor, override_dir)
+            let cfg_entry = cfg.agents.iter().find(|a| a.id == descriptor.id);
+            let override_dir = cfg_entry.and_then(|a| a.skill_dir.as_deref());
+            let mut det = agents::detect(descriptor, override_dir);
+            det.is_custom = false;
+            det.enabled = cfg_entry.map(|a| a.enabled).unwrap_or(true);
+            det
         })
         .collect();
 
@@ -57,7 +57,10 @@ pub fn agents_detect() -> AppResult<Vec<AgentDetection>> {
         };
         let descriptor =
             agents::custom_descriptor(&cfg_agent.id, cfg_agent.display_name.as_deref(), dir);
-        all.push(agents::detect(&descriptor, Some(dir)));
+        let mut det = agents::detect(&descriptor, Some(dir));
+        det.is_custom = true;
+        det.enabled = cfg_agent.enabled;
+        all.push(det);
     }
 
     Ok(all)

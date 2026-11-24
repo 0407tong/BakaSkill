@@ -132,13 +132,13 @@ export function AppShell({ children, banner }: AppShellProps) {
 
           {detailPanelOpen ? (
             <>
-              {/* 分隔条做成 ~9px 的抓取区，中间一条 1px 视觉线。
-                  只用 1px 宽的命中区在实际使用中很难抓住。 */}
+              {/* 分隔条做成 ~9px 的抓取区，中间一条 1px 视觉线 + 悬停指示条。 */}
               <Separator
                 className="group relative flex w-2.5 shrink-0 cursor-col-resize items-center justify-center bg-transparent"
                 aria-label="调整详情面板宽度"
               >
-                <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-accent" />
+                <span className="pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border transition-colors group-hover:bg-accent/70" />
+                <span className="pointer-events-none z-10 h-8 w-1 rounded-full bg-border-strong opacity-0 transition-opacity group-hover:opacity-100" />
               </Separator>
               <Panel
                 id="detail"

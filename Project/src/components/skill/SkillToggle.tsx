@@ -1,86 +1,205 @@
+import { useMemo, useState } from "react";
 import { Loader2 } from "lucide-react";
 
-import { cn } from "@/lib/cn";
+import { AgentTargetDialog } from "@/components/skill/AgentTargetDialog";
 import { Switch } from "@/components/ui/Switch";
 import { Tooltip } from "@/components/ui/Tooltip";
+import { cn } from "@/lib/cn";
 import { useSetLinkEnabled } from "@/lib/queries";
-import type { SkillSummary } from "@/types/ipc";
+import type { AgentDetection, LinkState, SkillSummary } from "@/types/ipc";
 
 export interface SkillToggleProps {
   skill: SkillSummary;
-  /** 限定只操作这些 Agent；不传表示全部已检测的 Agent */
-  agentIds?: string[];
+  /** 若处于单 Agent 视角，只操作该 Agent */
+  activeAgentId?: string | null;
+  /** 单 Agent 视角下该 Skill 的当前链接状态 */
+  activeAgentState?: LinkState;
+  /** 所有已就绪的 Agent（总览视角下用于弹窗按需选择目标 Agent） */
+  readyAgents?: readonly AgentDetection[];
   className?: string;
 }
 
 /**
- * Skill 的启停开关（三态）。
+ * Skill 的启停开关。
  *
- * - **全部启用**：开关为开
- * - **部分启用**：开关为开但半透明，点击会「全部关闭」
- * - **未启用**：开关为关，点击会「全部启用」
- *
- * 主开关的语义是"对该 Skill 在所有已检测 Agent 上批量操作"。
- * 按 Agent 的细分开关在详情面板中单独提供。
- *
- * 不使用乐观更新：链接操作能否成功取决于磁盘真实状态
- * （目标被占用、Agent 锁定目录等），预测错误会让用户看到
- * "界面显示成功但实际没生效"。这里如实等待结果。
+ * - 选中单个 Agent 时：直接对该 Agent 一键启停；
+ * - 总览「全部」视角且存在多个已就绪 Agent 时：点击弹出目标 Agent 选择框，
+ *   由用户指定要启停的 Agent，不再强制全量操作。
  */
 export function SkillToggle({
   skill,
-  agentIds = [],
+  activeAgentId = null,
+  activeAgentState,
+  readyAgents = [],
   className,
 }: SkillToggleProps) {
   const setEnabled = useSetLinkEnabled();
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [pickerMode, setPickerMode] = useState<"enable" | "disable">("enable");
 
-  // 可切换的前提：中央库中有实体（才能建立指向它的链接）
   const canToggle = skill.inCentralLibrary;
-
-  const managed = skill.managedCount;
-  const total = skill.instances.length;
-  const state: "all" | "partial" | "none" =
-    managed === 0 ? "none" : total > 0 && managed === total ? "all" : "partial";
-
-  const nextEnabled = state !== "all";
-
-  const reason = !canToggle
-    ? "该 Skill 不在中央库中，无法建立链接。请先把它纳入中央库。"
-    : nextEnabled
-      ? "启用：在 Agent 技能目录中建立指向中央库的链接"
-      : "禁用：删除链接（中央库中的 Skill 文件不受影响）";
-
   const busy = setEnabled.isPending;
 
+  const enabledAgentIds = useMemo(
+    () =>
+      new Set(
+        skill.instances
+          .filter((i) => i.kind === "managed")
+          .map((i) => i.agentId),
+      ),
+    [skill.instances],
+  );
+
+  // 默认勾选：启用时勾「尚未启用的」，禁用时勾「已启用的」
+  const initialSelectedIds = useMemo(() => {
+    if (pickerMode === "enable") {
+      const notYet = readyAgents
+        .filter((a) => !enabledAgentIds.has(a.id))
+        .map((a) => a.id);
+      return notYet.length > 0 ? notYet : readyAgents.map((a) => a.id);
+    }
+    const active = readyAgents
+      .filter((a) => enabledAgentIds.has(a.id))
+      .map((a) => a.id);
+    return active.length > 0 ? active : readyAgents.map((a) => a.id);
+  }, [pickerMode, readyAgents, enabledAgentIds]);
+
+  // 单 Agent 模式下的状态判定
+  if (activeAgentId) {
+    const isEnabled = activeAgentState === "valid";
+    const toggleable =
+      canToggle &&
+      (activeAgentState === "valid" ||
+        activeAgentState === "absent" ||
+        activeAgentState === "dangling" ||
+        !activeAgentState);
+    const reason = !canToggle
+      ? "尚未纳入中央库，请先在详情中纳入中央库"
+      : !toggleable
+        ? "该位置存在目录冲突或外部链接，请在映射矩阵中处理"
+        : isEnabled
+          ? "在当前 Agent 中禁用"
+          : "在当前 Agent 中启用";
+
+    return (
+      <Tooltip label={busy ? "正在处理…" : reason}>
+        <span
+          className={cn("inline-flex shrink-0 items-center", className)}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin text-fg-subtle" />
+          ) : (
+            <Switch
+              size="sm"
+              checked={isEnabled}
+              disabled={!toggleable}
+              aria-label={reason}
+              onCheckedChange={(checked) =>
+                setEnabled.mutate({
+                  skillDirName: skill.dirName,
+                  agentIds: [activeAgentId],
+                  enabled: checked,
+                })
+              }
+            />
+          )}
+        </span>
+      </Tooltip>
+    );
+  }
+
+  // 总览「全部」模式
+  const readyCount = readyAgents.length;
+  const managed = skill.managedCount;
+  const state: "all" | "partial" | "none" =
+    managed === 0
+      ? "none"
+      : readyCount > 0 && managed >= readyCount
+        ? "all"
+        : "partial";
+
+  const nextEnabled = state !== "all";
+  const needPicker = readyCount > 1;
+
+  const reason = !canToggle
+    ? "尚未纳入中央库，请先在详情中纳入中央库"
+    : needPicker
+      ? nextEnabled
+        ? "选择要启用的 Agent"
+        : "选择要禁用的 Agent"
+      : nextEnabled
+        ? "启用到已就绪 Agent"
+        : "禁用链接";
+
+  const handleToggle = () => {
+    if (!canToggle) return;
+    if (needPicker) {
+      setPickerMode(nextEnabled ? "enable" : "disable");
+      setPickerOpen(true);
+      return;
+    }
+    setEnabled.mutate({
+      skillDirName: skill.dirName,
+      agentIds: readyAgents.map((a) => a.id),
+      enabled: nextEnabled,
+    });
+  };
+
   return (
-    <Tooltip label={busy ? "正在处理…" : reason}>
-      <span
-        className={cn("inline-flex shrink-0 items-center", className)}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {busy ? (
-          <Loader2 className="size-4 animate-spin text-fg-subtle" />
-        ) : (
-          <Switch
-            size="sm"
-            checked={state === "all"}
-            disabled={!canToggle}
-            aria-label={reason}
-            aria-checked={state === "partial" ? "mixed" : state === "all"}
-            onCheckedChange={() =>
-              setEnabled.mutate({
+    <>
+      <Tooltip label={busy ? "正在处理…" : reason}>
+        <span
+          className={cn("inline-flex shrink-0 items-center", className)}
+          onClick={(e) => e.stopPropagation()}
+        >
+          {busy ? (
+            <Loader2 className="size-4 animate-spin text-fg-subtle" />
+          ) : (
+            <Switch
+              size="sm"
+              checked={state !== "none"}
+              disabled={!canToggle}
+              aria-label={reason}
+              aria-checked={state === "partial" ? "mixed" : state === "all"}
+              onCheckedChange={handleToggle}
+              className={cn(state === "partial" && "opacity-65")}
+            />
+          )}
+        </span>
+      </Tooltip>
+
+      {needPicker ? (
+        <AgentTargetDialog
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          title={
+            pickerMode === "enable"
+              ? `启用「${skill.name}」`
+              : `禁用「${skill.name}」`
+          }
+          description={
+            pickerMode === "enable"
+              ? "选择要接入该 Skill 的 Agent，中央库文件只保留一份。"
+              : "选择要取消接入的 Agent，仅移除链接、不影响中央库原文件。"
+          }
+          confirmLabel={pickerMode === "enable" ? "确认启用" : "确认禁用"}
+          agents={readyAgents}
+          initialSelectedIds={initialSelectedIds}
+          enabledAgentIds={enabledAgentIds}
+          busy={busy}
+          onConfirm={(agentIds) => {
+            setEnabled.mutate(
+              {
                 skillDirName: skill.dirName,
                 agentIds,
-                enabled: nextEnabled,
-              })
-            }
-            className={cn(
-              // 部分启用用半透明表达"介于两者之间"，而不是简单等同于关闭
-              state === "partial" && "opacity-60",
-            )}
-          />
-        )}
-      </span>
-    </Tooltip>
+                enabled: pickerMode === "enable",
+              },
+              { onSuccess: () => setPickerOpen(false) },
+            );
+          }}
+        />
+      ) : null}
+    </>
   );
 }

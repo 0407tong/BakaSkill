@@ -17,11 +17,7 @@ import { Button } from "@/components/ui/Button";
 import { Input } from "@/components/ui/Input";
 import { Tooltip } from "@/components/ui/Tooltip";
 import { useConfig, useSkillsScan } from "@/lib/queries";
-import {
-  useSkillStore,
-  type SortKey,
-  type SourceFilter,
-} from "@/store/skillStore";
+import { useSkillStore, type SortKey } from "@/store/skillStore";
 import { useViewStore, type ThemeMode, type ViewMode } from "@/store/viewStore";
 
 const VIEW_TITLE: Record<string, string> = {
@@ -67,8 +63,6 @@ export function TopBar() {
 
   const search = useSkillStore((s) => s.search);
   const setSearch = useSkillStore((s) => s.setSearch);
-  const sourceFilter = useSkillStore((s) => s.sourceFilter);
-  const setSourceFilter = useSkillStore((s) => s.setSourceFilter);
   const sort = useSkillStore((s) => s.sort);
   const setSort = useSkillStore((s) => s.setSort);
 
@@ -89,18 +83,14 @@ export function TopBar() {
     void queryClient.invalidateQueries({ queryKey: ["scan"] });
     void queryClient.invalidateQueries({ queryKey: ["agents"] });
     void queryClient.invalidateQueries({ queryKey: ["index"] });
+    void queryClient.invalidateQueries({ queryKey: ["links"] });
   };
-
-  // 来源筛选的候选项来自实际检测到的 Agent，而不是写死的列表
-  const agentOptions = (scan.data?.agents ?? []).filter(
-    (a) => a.status !== "notInstalled",
-  );
 
   // sh-plate：铺了背景图时顶栏要有自己不透明的底，否则文字直接压在插画上
   // （见 globals.css 里 .sh-plate 的说明）。
   return (
-    <header className="sh-frost sh-plate flex h-12 shrink-0 items-center gap-3 border-b border-border bg-bg px-3">
-      <h1 className="shrink-0 text-sm font-semibold text-fg">
+    <header className="sh-frost sh-plate flex h-12 shrink-0 items-center gap-2.5 border-b border-border bg-bg-subtle/80 px-4">
+      <h1 className="shrink-0 text-sm font-semibold tracking-tight text-fg">
         {VIEW_TITLE[activeView] ?? "BakaSkill"}
       </h1>
 
@@ -138,50 +128,38 @@ export function TopBar() {
             />
           </div>
 
-          <select
-            value={sourceFilter}
-            onChange={(e) => setSourceFilter(e.target.value as SourceFilter)}
-            aria-label="来源筛选"
-            className={cn(
-              "h-8.5 shrink-0 rounded-md border border-border bg-surface px-2 text-xs text-fg",
-              "outline-none focus-visible:border-accent",
-            )}
-          >
-            {/* 中央库排第一：它是本应用管理的主体，
-                其余几项都是"另外还存在于别处"的补充视角 */}
-            <option value="central">仅中央库</option>
-            <option value="all">全部来源</option>
-            <option value="external">含外部副本</option>
-            <option value="dangling">含断链</option>
-            {agentOptions.map((agent) => (
-              <option key={agent.id} value={agent.id}>
-                {agent.displayName}
-              </option>
-            ))}
-          </select>
-
           {/* 与 Windows 的「显示隐藏文件」同位同义：默认藏起来保持干净，
               但开关就在旁边，随时能找回来。 */}
-          <label
-            className="flex h-8.5 shrink-0 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-surface px-2 text-xs text-fg-muted"
-            title="Agent 安装时自带的 Skill（如 Codex 的 .system 分组）。默认不显示，也不纳入管理。"
-          >
-            <input
-              type="checkbox"
-              checked={showSystemSkills}
-              onChange={(e) => setShowSystemSkills(e.target.checked)}
-              className="size-3.5 accent-[var(--color-accent)]"
-            />
-            系统 Skill
-          </label>
+          <Tooltip label="显示 Agent 自带的系统 Skill（默认隐藏）">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={showSystemSkills}
+              onClick={() => setShowSystemSkills(!showSystemSkills)}
+              className={cn(
+                "flex h-8 shrink-0 items-center gap-1.5 rounded-lg border px-2.5 text-xs transition-colors",
+                showSystemSkills
+                  ? "border-accent bg-accent-subtle font-medium text-accent"
+                  : "border-border bg-surface text-fg-muted hover:border-border-strong hover:text-fg",
+              )}
+            >
+              <span
+                className={cn(
+                  "size-1.5 rounded-full transition-colors",
+                  showSystemSkills ? "bg-accent" : "bg-fg-subtle/60",
+                )}
+              />
+              系统 Skill
+            </button>
+          </Tooltip>
 
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
             aria-label="排序方式"
             className={cn(
-              "h-8.5 shrink-0 rounded-md border border-border bg-surface px-2 text-xs text-fg",
-              "outline-none focus-visible:border-accent",
+              "h-8 shrink-0 rounded-lg border border-border bg-surface px-2.5 text-xs text-fg transition-colors",
+              "outline-none hover:border-border-strong focus-visible:border-accent",
             )}
           >
             {(Object.keys(SORT_LABEL) as SortKey[]).map((key) => (
@@ -196,34 +174,36 @@ export function TopBar() {
       )}
 
       <div className="flex shrink-0 items-center gap-1">
-        <ToggleGroup.Root
-          type="single"
-          value={viewMode}
-          onValueChange={(value) => {
-            if (value) setViewMode(value as ViewMode);
-          }}
-          className="flex items-center gap-0.5 rounded-md border border-border bg-surface p-0.5"
-          aria-label="视图切换"
-        >
-          {(["grid", "list"] as const).map((mode) => {
-            const Icon = VIEW_MODE_META[mode].icon;
-            return (
-              <Tooltip key={mode} label={VIEW_MODE_META[mode].label}>
-                <ToggleGroup.Item
-                  value={mode}
-                  aria-label={VIEW_MODE_META[mode].label}
-                  className={cn(
-                    "flex size-6.5 items-center justify-center rounded-sm transition-colors",
-                    "text-fg-subtle hover:text-fg",
-                    "data-[state=on]:bg-accent-subtle data-[state=on]:text-accent",
-                  )}
-                >
-                  <Icon className="size-3.5" />
-                </ToggleGroup.Item>
-              </Tooltip>
-            );
-          })}
-        </ToggleGroup.Root>
+        {showSkillControls ? (
+          <ToggleGroup.Root
+            type="single"
+            value={viewMode}
+            onValueChange={(value) => {
+              if (value) setViewMode(value as ViewMode);
+            }}
+            className="flex items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5"
+            aria-label="视图切换"
+          >
+            {(["grid", "list"] as const).map((mode) => {
+              const Icon = VIEW_MODE_META[mode].icon;
+              return (
+                <Tooltip key={mode} label={VIEW_MODE_META[mode].label}>
+                  <ToggleGroup.Item
+                    value={mode}
+                    aria-label={VIEW_MODE_META[mode].label}
+                    className={cn(
+                      "flex size-6.5 items-center justify-center rounded-md transition-colors",
+                      "text-fg-subtle hover:text-fg",
+                      "data-[state=on]:bg-accent-subtle data-[state=on]:text-accent",
+                    )}
+                  >
+                    <Icon className="size-3.5" />
+                  </ToggleGroup.Item>
+                </Tooltip>
+              );
+            })}
+          </ToggleGroup.Root>
+        ) : null}
 
         {showSkillControls ? (
           <Tooltip

@@ -78,7 +78,7 @@ export function AppearanceSettings() {
 
   return (
     <section
-      className="rounded-lg border border-border bg-surface"
+      className="sh-plate rounded-xl border border-border bg-surface"
       aria-labelledby="appearance-heading"
     >
       <header className="flex items-center gap-2 border-b border-border px-4 py-3">

@@ -1,5 +1,32 @@
 [
   {
+    "id": "antigravity",
+    "display_name": "Antigravity",
+    "icon": "antigravity",
+    "skill_dir_candidates": [
+      "%USERPROFILE%\\.gemini\\config\\skills",
+      "%USERPROFILE%\\.gemini\\antigravity\\skills",
+      "%USERPROFILE%\\.gemini\\antigravity\\global_skills"
+    ],
+    "detection": [
+      {
+        "type": "any_exists",
+        "paths": [
+          "%USERPROFILE%\\.gemini\\antigravity",
+          "%USERPROFILE%\\.gemini\\antigravity-ide"
+        ]
+      },
+      {
+        "type": "exe_on_path",
+        "commands": ["agy", "agy.exe", "antigravity", "antigravity.exe"]
+      }
+    ],
+    "max_scan_depth": 1,
+    "system_group_prefix": ".",
+    "notes": "Google Antigravity（谷歌反重力）。全局技能目录按需创建，优先探测 ~/.gemini/config/skills（兼容 ~/.gemini/antigravity/skills 与 global_skills）；目录不存在时可一键创建或手动指定。",
+    "docs_url": null
+  },
+  {
     "id": "codex",
     "display_name": "Codex",
     "icon": "codex",

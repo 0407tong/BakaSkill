@@ -5,10 +5,15 @@ import { persist } from "zustand/middleware";
 export type SortKey = "name" | "updated" | "managed";
 
 /**
- * 来源筛选。除固定取值外，也可以是某个 Agent 的 id。
- * `"instance:xxx"` 表示只看「在某个 Agent 中处于某种形态」的 Skill。
+ * 清晰的 Skill 状态分类：
+ * - `all`：全部
+ * - `enabled`：已启用（当前视角下至少接入了一个 Agent，或在所选 Agent 中已启用）
+ * - `disabled`：未启用（在中央库中，但尚未接入）
+ * - `unmanaged`：未纳管（仅存在于 Agent 目录中的实体副本）
+ * - `abnormal`：异常（断链或同名目录冲突）
  */
-export type SourceFilter = "all" | "central" | "external" | "dangling" | string;
+export type SourceFilter =
+  "all" | "enabled" | "disabled" | "unmanaged" | "abnormal";
 
 interface SkillState {
   search: string;
@@ -33,9 +38,7 @@ export const useSkillStore = create<SkillState>()(
   persist(
     (set) => ({
       search: "",
-      // 默认只看中央库：本应用管理的是"用户自己的 Skill"，而中央库才是它的主体。
-      // Agent 目录里的外部副本与断链都还在（切一下筛选即可看到），只是不当默认噪音。
-      sourceFilter: "central",
+      sourceFilter: "all",
       sort: "name",
       selectedId: null,
       selectedIds: [],

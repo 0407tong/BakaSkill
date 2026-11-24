@@ -39,6 +39,9 @@ rayon = "1.12.0"
 keyring = "4.2.0"
 ureq = { version = "3.4.2", features = ["json"] }
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
+sevenz-rust = "0.6.1"
+flate2 = "1.1.11"
+tar = "0.4.46"
 trash = "5.2.9"
 base64 = "0.23.1"
 

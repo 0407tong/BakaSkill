@@ -3,7 +3,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 
 import { SkillCard } from "@/components/skill/SkillCard";
 import { useSkillStore } from "@/store/skillStore";
-import type { SkillSummary } from "@/types/ipc";
+import type { AgentDetection, LinkState, SkillSummary } from "@/types/ipc";
 
 const ROW_GAP = 12;
 /** 首次渲染时的行高估值，真实行高由 measureElement 实测后覆盖 */
@@ -22,6 +22,9 @@ export interface SkillGridProps {
   snippets?: ReadonlyMap<string, string>;
   /** 用于高亮的关键词 */
   keywords?: string;
+  activeAgentId?: string | null;
+  agentStates?: ReadonlyMap<string, LinkState> | null;
+  readyAgents?: readonly AgentDetection[];
 }
 
 /**
@@ -45,6 +48,9 @@ export function SkillGrid({
   onSelect,
   snippets,
   keywords,
+  activeAgentId,
+  agentStates,
+  readyAgents,
 }: SkillGridProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState(3);
@@ -119,6 +125,9 @@ export function SkillGrid({
                   onToggleChecked={toggleChecked}
                   snippet={snippets?.get(skill.id)}
                   keywords={keywords}
+                  activeAgentId={activeAgentId}
+                  activeAgentState={agentStates?.get(skill.id)}
+                  readyAgents={readyAgents}
                 />
               ))}
             </div>

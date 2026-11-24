@@ -14,6 +14,8 @@ export type BackgroundMode = "default" | "custom" | "none";
 
 interface ViewState {
   activeView: AppView;
+  /** 当前选中的 Agent id（null 表示总览全部） */
+  selectedAgentId: string | null;
   viewMode: ViewMode;
   themeMode: ThemeMode;
   sidebarCollapsed: boolean;
@@ -43,6 +45,7 @@ interface ViewState {
   setBackgroundOpacity: (opacity: number) => void;
 
   setActiveView: (view: AppView) => void;
+  setSelectedAgentId: (id: string | null) => void;
   setViewMode: (mode: ViewMode) => void;
   setThemeMode: (mode: ThemeMode) => void;
   setSidebarCollapsed: (collapsed: boolean) => void;
@@ -61,6 +64,7 @@ export const useViewStore = create<ViewState>()(
   persist(
     (set) => ({
       activeView: "skills",
+      selectedAgentId: null,
       viewMode: "grid",
       themeMode: "system",
       sidebarCollapsed: false,
@@ -74,6 +78,7 @@ export const useViewStore = create<ViewState>()(
       setBackgroundOpacity: (backgroundOpacity) => set({ backgroundOpacity }),
 
       setActiveView: (activeView) => set({ activeView }),
+      setSelectedAgentId: (selectedAgentId) => set({ selectedAgentId }),
       setViewMode: (viewMode) => set({ viewMode }),
       setThemeMode: (themeMode) => set({ themeMode }),
       setSidebarCollapsed: (sidebarCollapsed) => set({ sidebarCollapsed }),

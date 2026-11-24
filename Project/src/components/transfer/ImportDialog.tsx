@@ -119,8 +119,13 @@ export function ImportDialog({
   const pickZip = async () => {
     const picked = await open({
       multiple: false,
-      title: "选择要导入的 ZIP",
-      filters: [{ name: "ZIP", extensions: ["zip"] }],
+      title: "选择要导入的压缩包",
+      filters: [
+        {
+          name: "压缩包",
+          extensions: ["zip", "7z", "tar", "gz", "tgz", "skill"],
+        },
+      ],
     });
     if (typeof picked === "string") await load({ kind: "zip", path: picked });
   };
@@ -203,8 +208,8 @@ export function ImportDialog({
               />
               <SourceButton
                 icon={<FileArchive />}
-                title="ZIP"
-                desc="解压后按文件夹导入"
+                title="压缩包"
+                desc="支持 ZIP / 7z / TAR.GZ / TGZ / .skill"
                 disabled={busy}
                 onClick={pickZip}
               />
@@ -255,8 +260,8 @@ export function ImportDialog({
             ) : null}
 
             <p className="text-[11px] leading-relaxed text-fg-subtle">
-              ZIP 会被解压到系统临时目录；包含越界路径（<code>..</code>{" "}
-              或绝对路径）的压缩包会被
+              压缩包（ZIP / 7z / TAR.GZ / TGZ / .skill）会先解压到系统临时目录；
+              包含越界路径（<code>..</code> 或绝对路径）的包会被
               <strong>整体拒绝</strong>，不会解压出任何文件。
             </p>
           </div>

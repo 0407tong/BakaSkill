@@ -105,10 +105,10 @@ export function Sidebar() {
               onClick={() => setActiveView(item.id)}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex h-8.5 w-full items-center gap-2.5 rounded-md text-sm transition-colors",
+                "relative flex h-9 w-full items-center gap-2.5 rounded-lg text-sm transition-all",
                 collapsed ? "justify-center px-0" : "px-2.5",
                 active
-                  ? "bg-accent-subtle font-medium text-accent"
+                  ? "bg-accent-subtle font-medium text-accent shadow-xs ring-1 ring-accent/15"
                   : "text-fg-muted hover:bg-surface-hover hover:text-fg",
               )}
             >

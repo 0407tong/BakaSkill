@@ -184,6 +184,10 @@ export interface AgentDetection {
   /** 命中的检测依据，向用户解释"为什么认为它装了" */
   detectedBy: string[];
   isUserOverride: boolean;
+  /** 是否为用户自定义 Agent（不在内置注册表中） */
+  isCustom: boolean;
+  /** 是否启用（未启用时隐藏于日常管理，可在设置页恢复） */
+  enabled: boolean;
   /** 实测备注：该路径是实测确认、实测证伪还是未实测 */
   notes: string | null;
   docsUrl: string | null;

@@ -6,7 +6,7 @@ import { SkillBadges } from "@/components/skill/SkillBadges";
 import { SkillToggle } from "@/components/skill/SkillToggle";
 import { Highlight } from "@/components/skill/Highlight";
 import { formatTimestamp } from "@/lib/format";
-import type { SkillSummary } from "@/types/ipc";
+import type { AgentDetection, LinkState, SkillSummary } from "@/types/ipc";
 
 export interface SkillCardProps {
   skill: SkillSummary;
@@ -19,6 +19,9 @@ export interface SkillCardProps {
   snippet?: string;
   /** 用于高亮的关键词 */
   keywords?: string;
+  activeAgentId?: string | null;
+  activeAgentState?: LinkState;
+  readyAgents?: readonly AgentDetection[];
 }
 
 /**
@@ -36,6 +39,9 @@ export function SkillCard({
   onToggleChecked,
   snippet,
   keywords,
+  activeAgentId,
+  activeAgentState,
+  readyAgents,
 }: SkillCardProps) {
   const hasProblem = skill.instances.some(
     (i) => i.kind === "dangling" || i.kind === "externalDuplicate",
@@ -58,16 +64,16 @@ export function SkillCard({
         // 而绝对定位的行不会给溢出让位，结果是盖住下一行。
         //
         // min-w-0：网格项默认 min-width:auto，内容（如长路径）能把单元撑宽。
-        "group flex min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-lg border bg-surface p-3",
-        "transition-colors outline-none",
+        "group flex min-w-0 cursor-pointer flex-col gap-2 overflow-hidden rounded-xl border bg-surface p-3.5",
+        "transition-all outline-none",
         "focus-visible:border-accent",
         // 选中态必须带 `sh-card-selected`：`bg-accent-subtle/40` 是**半透明**的，
         // 它会替换掉本来不透明的 `bg-surface`。铺了背景图时（图模式下面板本来就
         // 半透明），卡片里的字就直接压在插画上，看不清——用户报的正是这个。
         // `globals.css` 里给列表行补过同一条规则（`.sh-row-selected`），卡片漏了。
         selected
-          ? "sh-card-selected border-accent bg-accent-subtle/40"
-          : "border-border hover:border-border-strong hover:bg-surface-hover",
+          ? "sh-card-selected border-accent bg-accent-subtle/40 shadow-xs"
+          : "border-border hover:border-border-strong hover:bg-surface-hover hover:shadow-xs",
         checked && !selected && "border-accent/50",
       )}
     >
@@ -111,7 +117,12 @@ export function SkillCard({
           </div>
         </div>
 
-        <SkillToggle skill={skill} />
+        <SkillToggle
+          skill={skill}
+          activeAgentId={activeAgentId}
+          activeAgentState={activeAgentState}
+          readyAgents={readyAgents}
+        />
       </div>
 
       {/* 搜索时显示正文片段（那才是"为什么命中"），平时显示描述 */}
@@ -120,7 +131,7 @@ export function SkillCard({
           <Highlight text={snippet} keywords={keywords ?? ""} />
         ) : (
           (skill.description ?? (
-            <span className="text-fg-subtle">（无描述）</span>
+            <span className="text-fg-subtle">暂无描述</span>
           ))
         )}
       </p>

@@ -28,8 +28,7 @@ use std::path::{Path, PathBuf};
 
 use serde::Serialize;
 
-use crate::agents::{self, AgentDetection, AgentStatus};
-use crate::config;
+use crate::agents::{AgentDetection, AgentStatus};
 use crate::error::{AppError, AppResult};
 use crate::index;
 use crate::library;
@@ -120,18 +119,9 @@ fn resolve_skill_dir(root: &Path, dir_name: &str) -> AppResult<PathBuf> {
 
 /// 本机所有"已经能接 Skill"的 Agent
 fn active_agents() -> AppResult<Vec<AgentDetection>> {
-    let cfg = config::load()?;
-    Ok(agents::registry()?
-        .iter()
-        .map(|descriptor| {
-            let override_dir = cfg
-                .agents
-                .iter()
-                .find(|a| a.id == descriptor.id)
-                .and_then(|a| a.skill_dir.as_deref());
-            agents::detect(descriptor, override_dir)
-        })
-        .filter(|a| a.status == AgentStatus::Detected && a.skill_dir.is_some())
+    Ok(crate::commands::agents::agents_detect()?
+        .into_iter()
+        .filter(|a| a.enabled && a.status == AgentStatus::Detected && a.skill_dir.is_some())
         .collect())
 }
 
@@ -415,6 +405,8 @@ mod tests {
             skill_dir: Some(skill_dir.display().to_string()),
             detected_by: vec![],
             is_user_override: true,
+            is_custom: false,
+            enabled: true,
             notes: None,
             docs_url: None,
         }

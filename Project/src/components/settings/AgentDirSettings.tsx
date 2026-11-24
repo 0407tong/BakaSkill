@@ -69,9 +69,14 @@ export function AgentDirSettings() {
   if (!config || !detections.data) return null;
 
   const agents = detections.data;
-  // 未安装的排在最后并折叠：它们是"这台机器上没有"，不是需要用户处理的事
-  const visible = agents.filter((a) => a.status !== "notInstalled");
-  const notInstalled = agents.filter((a) => a.status === "notInstalled");
+  // 已启用且已安装/自定义的排在主列表；手动停用或未安装的折叠在底部
+  const visible = agents.filter(
+    (a) => a.enabled && a.status !== "notInstalled",
+  );
+  const disabledAgents = agents.filter((a) => !a.enabled);
+  const notInstalled = agents.filter(
+    (a) => a.enabled && a.status === "notInstalled",
+  );
 
   /** 写入 config.agents 的一条（没有就追加） */
   const patchAgent = (
@@ -97,8 +102,21 @@ export function AgentDirSettings() {
     save({ ...config, agents: next });
   };
 
-  const removeAgent = (id: string) => {
-    save({ ...config, agents: config.agents.filter((a) => a.id !== id) });
+  const removeAgent = (agent: AgentDetection) => {
+    if (agent.isCustom) {
+      // 自定义 Agent：直接从配置里彻底删除
+      save({
+        ...config,
+        agents: config.agents.filter((a) => a.id !== agent.id),
+      });
+    } else {
+      // 内置 Agent：标记为停用并清除覆盖路径，从日常管理中移除（可在底部恢复）
+      patchAgent(agent.id, { enabled: false, skillDir: null });
+    }
+  };
+
+  const restoreAgent = (agentId: string) => {
+    patchAgent(agentId, { enabled: true });
   };
 
   const save = (next: ConfigView) => {
@@ -114,7 +132,7 @@ export function AgentDirSettings() {
 
   return (
     <section
-      className="rounded-lg border border-border bg-surface"
+      className="sh-plate rounded-xl border border-border bg-surface"
       aria-labelledby="agent-dir-heading"
     >
       <header className="flex items-center gap-2 border-b border-border px-4 py-3">
@@ -137,22 +155,21 @@ export function AgentDirSettings() {
             const meta = STATUS_META[agent.status];
             const override =
               config.agents.find((a) => a.id === agent.id)?.skillDir ?? null;
-            const isBuiltin = agent.detectedBy.length > 0 || !override;
 
             return (
               <li
                 key={agent.id}
-                className="rounded-md border border-border bg-bg-subtle p-2.5"
+                className="rounded-lg border border-border bg-bg-subtle p-2.5"
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-xs font-medium text-fg">
                     {agent.displayName}
                   </span>
                   <Badge variant={meta.variant}>{meta.label}</Badge>
-                  {override ? (
-                    <Badge variant="accent">你指定的</Badge>
-                  ) : !isBuiltin ? (
+                  {agent.isCustom ? (
                     <Badge variant="outline">自定义</Badge>
+                  ) : override ? (
+                    <Badge variant="accent">自定义路径</Badge>
                   ) : null}
 
                   <div className="ml-auto flex items-center gap-1.5">
@@ -183,29 +200,39 @@ export function AgentDirSettings() {
                       {override ? "改目录" : "指定目录"}
                     </Button>
 
-                    {override ? (
+                    {!agent.isCustom && override ? (
                       <Button
                         size="sm"
                         variant="ghost"
                         disabled={busy}
                         onClick={() => patchAgent(agent.id, { skillDir: null })}
                         aria-label="恢复默认路径"
+                        title="恢复默认路径"
                       >
                         <RotateCcw className="size-3.5" />
                       </Button>
                     ) : null}
 
-                    {!isBuiltin && override ? (
-                      <Button
-                        size="sm"
-                        variant="ghost"
-                        disabled={busy}
-                        onClick={() => removeAgent(agent.id)}
-                        aria-label="移除这个自定义 Agent"
-                      >
-                        <Trash2 className="size-3.5" />
-                      </Button>
-                    ) : null}
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      className="text-danger hover:bg-danger-subtle hover:text-danger"
+                      disabled={busy}
+                      onClick={() => removeAgent(agent)}
+                      aria-label={
+                        agent.isCustom
+                          ? `删除自定义 Agent ${agent.displayName}`
+                          : `移除 ${agent.displayName}`
+                      }
+                      title={
+                        agent.isCustom
+                          ? "删除该自定义 Agent"
+                          : "从管理列表中移除（可随时在下方恢复）"
+                      }
+                    >
+                      <Trash2 className="size-3.5" />
+                      {agent.isCustom ? "删除" : "移除"}
+                    </Button>
                   </div>
                 </div>
 
@@ -327,17 +354,43 @@ export function AgentDirSettings() {
           </Button>
         )}
 
+        {/* 已手动移除的内置 Agent，可一键恢复 */}
+        {disabledAgents.length > 0 ? (
+          <details className="pt-1">
+            <summary className="cursor-pointer text-[11px] text-fg-subtle">
+              已移除 {disabledAgents.length} 个 Agent
+            </summary>
+            <ul className="mt-1.5 space-y-1">
+              {disabledAgents.map((agent) => (
+                <li
+                  key={agent.id}
+                  className="flex items-center justify-between rounded-md border border-border bg-bg-subtle px-2.5 py-1.5 text-xs"
+                >
+                  <span className="text-fg-muted">{agent.displayName}</span>
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    disabled={busy}
+                    onClick={() => restoreAgent(agent.id)}
+                  >
+                    <RotateCcw className="size-3.5" />
+                    恢复
+                  </Button>
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
         {/* 未安装的折起来：它们是"这台机器上没有"，不是待办 */}
         {notInstalled.length > 0 ? (
           <details className="pt-1">
             <summary className="cursor-pointer text-[11px] text-fg-subtle">
-              {notInstalled.length} 个 Agent 未安装（
-              {notInstalled.map((a) => a.displayName).join("、")}）
+              未安装 {notInstalled.length} 个 Agent
             </summary>
             <p className="mt-1 text-[11px] leading-relaxed text-fg-subtle">
-              未安装的 Agent
-              不会创建技能目录——那会在你机器上凭空多出属于这些软件的目录。
-              装好之后回到这一页即可。
+              {notInstalled.map((a) => a.displayName).join("、")}
+              。安装后回到这一页即可自动识别。
             </p>
           </details>
         ) : null}

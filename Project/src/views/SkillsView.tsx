@@ -5,40 +5,38 @@ import {
   Boxes,
   Download,
   FolderCog,
+  FolderPlus,
   Import,
   Loader2,
   Search,
   WifiOff,
 } from "lucide-react";
 
-import { Button } from "@/components/ui/Button";
 import { EmptyState } from "@/components/EmptyState";
 import { BulkActionBar } from "@/components/skill/BulkActionBar";
-import { ImportDialog } from "@/components/transfer/ImportDialog";
 import { SkillGrid } from "@/components/skill/SkillGrid";
 import { SkillList } from "@/components/skill/SkillList";
-import { applyFilters, isPureSystemSkill, parseQuery } from "@/lib/skillFilter";
+import { ImportDialog } from "@/components/transfer/ImportDialog";
+import { Button } from "@/components/ui/Button";
+import { cn } from "@/lib/cn";
 import {
   useConfig,
+  useCreateAgentSkillDir,
   useImportPreviewPaths,
+  useLinkMatrix,
   usePing,
   useSkillSearch,
   useSkillsScan,
 } from "@/lib/queries";
+import { applyFilters, isPureSystemSkill, parseQuery } from "@/lib/skillFilter";
 import { useFileDrop } from "@/lib/useFileDrop";
-import { useSkillStore } from "@/store/skillStore";
+import { useSkillStore, type SourceFilter } from "@/store/skillStore";
 import { useViewStore } from "@/store/viewStore";
-import type { ImportPreview } from "@/types/ipc";
+import type { AgentDetection, ImportPreview, LinkState } from "@/types/ipc";
 
 /** 输入停顿多久才去问后端。太短会把每个字符都变成一次 IPC，太长则显得迟钝。 */
 const SEARCH_DEBOUNCE_MS = 180;
 
-/**
- * 防抖：返回一个滞后于输入的副本。
- *
- * 只有需要**发起 IPC** 的那部分（关键词）才走防抖；筛选与排序都是
- * 纯内存计算，跟着输入即时生效——用户敲 `is:enabled` 时不该感觉卡顿。
- */
 function useDebounced<T>(value: T, delay: number): T {
   const [settled, setSettled] = useState(value);
 
@@ -50,21 +48,25 @@ function useDebounced<T>(value: T, delay: number): T {
   return settled;
 }
 
-/** 「我的 Skills」主视图 */
+/** 「我的 Skills」主视图：集成独立 Agent 切换行 + 清晰状态分类 + 批量管理 */
 export function SkillsView() {
   const setActiveView = useViewStore((s) => s.setActiveView);
   const viewMode = useViewStore((s) => s.viewMode);
   const openDetail = useViewStore((s) => s.openDetail);
   const showSystemSkills = useViewStore((s) => s.showSystemSkills);
   const setShowSystemSkills = useViewStore((s) => s.setShowSystemSkills);
+  const selectedAgentId = useViewStore((s) => s.selectedAgentId);
+  const setSelectedAgentId = useViewStore((s) => s.setSelectedAgentId);
 
   const search = useSkillStore((s) => s.search);
   const sourceFilter = useSkillStore((s) => s.sourceFilter);
+  const setSourceFilter = useSkillStore((s) => s.setSourceFilter);
   const sort = useSkillStore((s) => s.sort);
   const selectedId = useSkillStore((s) => s.selectedId);
   const select = useSkillStore((s) => s.select);
+  const clearSelection = useSkillStore((s) => s.clearSelection);
+
   const [importOpen, setImportOpen] = useState(false);
-  // 拖拽那条路自己准备好预览，再交给对话框——对话框不参与"选来源"
   const [presetPreview, setPresetPreview] = useState<ImportPreview | null>(
     null,
   );
@@ -73,11 +75,10 @@ export function SkillsView() {
   const { data: config, isPending: configLoading } = useConfig();
   const libraryPath = config?.centralLibraryPath ?? null;
   const scan = useSkillsScan(libraryPath);
-
+  const matrix = useLinkMatrix();
+  const createDir = useCreateAgentSkillDir();
   const previewPaths = useImportPreviewPaths();
 
-  // 把 Skill 拖进这一页即导入。落盘前仍然走预览——用户拖的可能是一个
-  // 装着 5 个 Skill 的文件夹，而他以为拖的是 1 个。
   const dragging = useFileDrop((paths) => {
     if (!libraryPath) {
       toast.error("还没有设置中央库位置", {
@@ -96,20 +97,107 @@ export function SkillsView() {
     );
   });
 
-  // 语法糖（tag:/agent:/is:）在前端就地筛选，只有**关键词**需要走全文检索。
-  // 因此先解析一遍，把关键词单独拿出来防抖后再发给后端。
+  // 所有已启用且已安装的 Agent（用于顶部独立模型切换栏）
+  const installedAgents: AgentDetection[] = useMemo(
+    () =>
+      (scan.data?.agents ?? []).filter(
+        (a) => a.enabled && a.status !== "notInstalled",
+      ),
+    [scan.data],
+  );
+
+  const readyAgents = useMemo(
+    () => installedAgents.filter((a) => a.status === "detected"),
+    [installedAgents],
+  );
+
+  // 当前选中的 Agent；若已被移除则自动回退到「全部」
+  const activeAgent = useMemo(
+    () =>
+      selectedAgentId
+        ? (installedAgents.find((a) => a.id === selectedAgentId) ?? null)
+        : null,
+    [installedAgents, selectedAgentId],
+  );
+  const activeAgentId = activeAgent?.id ?? null;
+
+  // 每个 Agent 已启用的 Skill 计数
+  const enabledCountByAgent = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const row of matrix.data?.rows ?? []) {
+      for (const cell of row.cells) {
+        if (cell.state === "valid") {
+          map.set(cell.agentId, (map.get(cell.agentId) ?? 0) + 1);
+        }
+      }
+    }
+    return map;
+  }, [matrix.data]);
+
+  const centralCount = useMemo(
+    () => (scan.data?.skills ?? []).filter((s) => s.inCentralLibrary).length,
+    [scan.data],
+  );
+
+  // 选中具体 Agent 时，构建 skillId -> LinkState 映射
+  const agentStates = useMemo(() => {
+    if (!activeAgentId) return null;
+    const map = new Map<string, LinkState>();
+    for (const row of matrix.data?.rows ?? []) {
+      const cell = row.cells.find((c) => c.agentId === activeAgentId);
+      if (cell) map.set(row.skillId, cell.state);
+    }
+    return map;
+  }, [activeAgentId, matrix.data]);
+
+  // 统计当前视角下各分类数量（用于简洁分类条）
+  const categoryCounts = useMemo(() => {
+    const all = (scan.data?.skills ?? []).filter((skill) => {
+      if (!showSystemSkills && isPureSystemSkill(skill)) return false;
+      if (activeAgentId && !skill.inCentralLibrary) {
+        return skill.instances.some((i) => i.agentId === activeAgentId);
+      }
+      return true;
+    });
+
+    let enabled = 0;
+    let disabled = 0;
+    let unmanaged = 0;
+    let abnormal = 0;
+
+    for (const skill of all) {
+      if (activeAgentId) {
+        const st = agentStates?.get(skill.id);
+        if (st === "valid") enabled += 1;
+        else if (st === "dangling" || st === "conflict") abnormal += 1;
+        else if (!skill.inCentralLibrary) unmanaged += 1;
+        else disabled += 1;
+      } else {
+        if (
+          skill.instances.some(
+            (i) => i.kind === "dangling" || i.kind === "externalDuplicate",
+          )
+        ) {
+          abnormal += 1;
+        }
+        if (skill.managedCount > 0) enabled += 1;
+        else if (skill.inCentralLibrary) disabled += 1;
+        if (!skill.inCentralLibrary) unmanaged += 1;
+      }
+    }
+    return { all: all.length, enabled, disabled, unmanaged, abnormal };
+  }, [scan.data, showSystemSkills, activeAgentId, agentStates]);
+
   const parsed = useMemo(() => parseQuery(search), [search]);
   const debouncedKeywords = useDebounced(parsed.keywords, SEARCH_DEBOUNCE_MS);
   const fullTextQuery = useSkillSearch(debouncedKeywords, libraryPath);
 
-  // 后端结果还没到时传 null（退回本地子串匹配），到了就传命中表
   const fullText = useMemo(() => {
     const hits = fullTextQuery.data;
     if (!hits) return null;
     return new Map(hits.map((hit) => [hit.skillId, hit.snippet]));
   }, [fullTextQuery.data]);
 
-  // 过滤是纯函数，交给 useMemo 避免每次渲染重算 1000 条
   const { skills: visible, snippets } = useMemo(
     () =>
       applyFilters(scan.data?.skills ?? [], {
@@ -117,9 +205,20 @@ export function SkillsView() {
         sourceFilter,
         sort,
         showSystemSkills,
+        agentId: activeAgentId,
+        agentStates,
         fullText,
       }),
-    [scan.data, search, sourceFilter, sort, showSystemSkills, fullText],
+    [
+      scan.data,
+      search,
+      sourceFilter,
+      sort,
+      showSystemSkills,
+      activeAgentId,
+      agentStates,
+      fullText,
+    ],
   );
 
   const handleSelect = (id: string) => {
@@ -153,7 +252,6 @@ export function SkillsView() {
     );
   }
 
-  // 未配置中央库：仍允许浏览 Agent 中已有的 Skill，但提示去设置
   if (!libraryPath) {
     return (
       <EmptyState
@@ -162,12 +260,12 @@ export function SkillsView() {
         description={
           <div className="space-y-2">
             <p>
-              中央库是 Skill 的统一存放位置。指定一个盘符与文件夹后， BakaSkill
+              中央库是 Skill 的统一存放位置。指定一个盘符与文件夹后，BakaSkill
               会把 Skill 集中存放在那里，再映射到各个 Agent。
             </p>
             <p className="text-xs text-fg-subtle">
-              未配置中央库时仍可浏览各 Agent 中已有的 Skill，
-              但无法进行接入与启停操作。
+              未配置中央库时仍可浏览各 Agent 中已有的
+              Skill，但无法进行接入与启停操作。
             </p>
           </div>
         }
@@ -206,20 +304,40 @@ export function SkillsView() {
   const report = scan.data;
   if (!report) return null;
 
-  // 被"系统 Skill"开关挡掉了几个。摘要栏要把它说出来——
-  // 藏了东西却不说，用户只会以为 Skill 丢了。
   const hiddenSystemCount = showSystemSkills
     ? 0
     : report.skills.filter(isPureSystemSkill).length;
 
+  const categoryTabs: { id: SourceFilter; label: string; count: number }[] = [
+    { id: "all", label: "全部", count: categoryCounts.all },
+    { id: "enabled", label: "已启用", count: categoryCounts.enabled },
+    { id: "disabled", label: "未启用", count: categoryCounts.disabled },
+    ...(categoryCounts.unmanaged > 0 || sourceFilter === "unmanaged"
+      ? [
+          {
+            id: "unmanaged" as const,
+            label: "未纳管",
+            count: categoryCounts.unmanaged,
+          },
+        ]
+      : []),
+    ...(categoryCounts.abnormal > 0 || sourceFilter === "abnormal"
+      ? [
+          {
+            id: "abnormal" as const,
+            label: "异常",
+            count: categoryCounts.abnormal,
+          },
+        ]
+      : []),
+  ];
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col">
-      {/* 拖拽蒙层。它同时是"松手会发生什么"的说明。
-          松手后仍然要留着（`isPending`）——读一个几百兆的文件夹要好几秒，
-          这段时间界面若毫无反应，用户会以为没生效而再拖一次。 */}
+      {/* 拖拽导入蒙层 */}
       {dragging || previewPaths.isPending ? (
-        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-accent-subtle/80 backdrop-blur-[1px]">
-          <div className="flex flex-col items-center gap-2 rounded-lg border-2 border-dashed border-accent bg-surface px-6 py-5 text-center shadow-lg">
+        <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center bg-accent-subtle/80 backdrop-blur-[2px]">
+          <div className="flex flex-col items-center gap-2 rounded-xl border-2 border-dashed border-accent bg-surface px-6 py-5 text-center shadow-lg">
             {previewPaths.isPending ? (
               <Loader2 className="size-5 animate-spin text-accent" />
             ) : (
@@ -229,53 +347,165 @@ export function SkillsView() {
               {previewPaths.isPending ? "正在读取…" : "松手即可导入到中央库"}
             </div>
             <div className="text-xs text-fg-muted">
-              支持文件夹、ZIP 与 SKILL.md，可一次拖多个
+              支持文件夹、ZIP / 7z / TAR.GZ / .skill 与 SKILL.md
             </div>
           </div>
         </div>
       ) : null}
 
-      {/* 扫描摘要 —— 让"数字从哪来"对用户可见。
-          sh-plate：这一条本来就没有自己的底色，铺了背景图之后文字会直接压在
-          插画上而看不清（见 globals.css 的说明）。 */}
-      <div className="sh-plate flex shrink-0 flex-wrap items-center gap-x-4 gap-y-1 border-b border-border px-3 py-1.5 text-[11px] text-fg-subtle">
-        <span>
-          共 <strong className="text-fg">{report.skills.length}</strong> 个
-          Skill
-          {visible.length !== report.skills.length ? (
-            <> · 当前显示 {visible.length}</>
-          ) : null}
-        </span>
-        <span>
-          扫描 {report.scannedDirs} 个目录 · 耗时 {report.durationMs}ms
-        </span>
-
-        {/* 藏起来的东西必须说得出有几个、还得能一键找回。
-            判定规则是"分组的目录名以点开头"（Codex 的 .system 就是），
-            因此用户自己放一个 `.某个目录/` 进去也会被归为内置——
-            若只是默默不显示，他会以为 Skill 丢了。 */}
-        {!showSystemSkills && hiddenSystemCount > 0 ? (
-          <button
-            type="button"
-            onClick={() => setShowSystemSkills(true)}
-            className="text-accent underline-offset-2 hover:underline"
-            title="Agent 安装时自带的 Skill（分组目录名以点开头）。点此显示。"
-          >
-            已隐藏 {hiddenSystemCount} 个 Agent 自带的 Skill
-          </button>
-        ) : null}
-        {report.skipped.length > 0 ? (
+      {/* Agent 切换栏 */}
+      <div className="sh-plate flex shrink-0 items-center gap-1.5 overflow-x-auto border-b border-border px-4 py-2">
+        <button
+          type="button"
+          onClick={() => {
+            setSelectedAgentId(null);
+            clearSelection();
+          }}
+          aria-pressed={activeAgentId === null}
+          className={cn(
+            "flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1 text-xs transition-all",
+            activeAgentId === null
+              ? "border-accent bg-accent-subtle font-medium text-accent shadow-xs"
+              : "border-border bg-surface text-fg-muted hover:border-border-strong hover:bg-surface-hover hover:text-fg",
+          )}
+        >
+          <span>全部模型</span>
           <span
-            className="flex items-center gap-1 text-warning"
-            title={report.skipped.join("\n")}
+            className={cn(
+              "rounded-full px-1.5 py-px font-mono text-[10px] tabular-nums",
+              activeAgentId === null
+                ? "bg-accent/15 text-accent"
+                : "bg-bg-subtle text-fg-subtle",
+            )}
           >
-            <AlertTriangle className="size-3" />
-            {report.skipped.length} 项被跳过
+            {centralCount}
           </span>
-        ) : null}
+        </button>
 
-        {/* 把解析出来的筛选条件回显出来：用户写了 tag:foo 却看到没过滤，
-            至少能一眼看出"应用读到的是什么"，而不是对着空结果猜。 */}
+        {installedAgents.map((agent) => {
+          const selected = agent.id === activeAgentId;
+          const count = enabledCountByAgent.get(agent.id) ?? 0;
+          const ready = agent.status === "detected";
+          return (
+            <button
+              key={agent.id}
+              type="button"
+              onClick={() => {
+                setSelectedAgentId(agent.id);
+                clearSelection();
+              }}
+              aria-pressed={selected}
+              className={cn(
+                "flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1 text-xs transition-all",
+                selected
+                  ? "border-accent bg-accent-subtle font-medium text-accent shadow-xs"
+                  : "border-border bg-surface text-fg-muted hover:border-border-strong hover:bg-surface-hover hover:text-fg",
+              )}
+            >
+              <span
+                className={cn(
+                  "size-1.5 shrink-0 rounded-full",
+                  ready ? "bg-success" : "bg-warning",
+                )}
+              />
+              <span>{agent.displayName}</span>
+              <span
+                className={cn(
+                  "rounded-full px-1.5 py-px font-mono text-[10px] tabular-nums",
+                  selected
+                    ? "bg-accent/15 text-accent"
+                    : "bg-bg-subtle text-fg-subtle",
+                )}
+              >
+                {ready ? `${count}/${centralCount}` : "待创建"}
+              </span>
+            </button>
+          );
+        })}
+
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <Button variant="ghost" size="sm" onClick={() => setImportOpen(true)}>
+            <Import className="size-3.5" />
+            导入
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => setActiveView("settings")}
+          >
+            <FolderCog className="size-3.5" />
+            管理 Agent
+          </Button>
+        </div>
+      </div>
+
+      {/* 若所选 Agent 的技能目录尚未创建，就地给出创建入口 */}
+      {activeAgent && activeAgent.status === "installedNoSkillDir" ? (
+        <div className="sh-plate flex shrink-0 flex-wrap items-center gap-2 border-b border-warning/30 bg-warning-subtle/80 px-4 py-2 text-xs">
+          <AlertTriangle className="size-3.5 shrink-0 text-warning" />
+          <span className="text-fg-muted">
+            <strong className="text-fg">{activeAgent.displayName}</strong>{" "}
+            的技能目录尚未创建
+            {activeAgent.skillDir ? (
+              <code className="ml-1.5 rounded-xs bg-surface/80 px-1.5 py-0.5 font-mono text-[11px] text-fg">
+                {activeAgent.skillDir}
+              </code>
+            ) : null}
+          </span>
+          <div className="ml-auto flex items-center gap-1.5">
+            {activeAgent.skillDir ? (
+              <Button
+                size="sm"
+                disabled={createDir.isPending}
+                onClick={() => createDir.mutate(activeAgent.id)}
+              >
+                {createDir.isPending ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : (
+                  <FolderPlus className="size-3.5" />
+                )}
+                一键创建目录
+              </Button>
+            ) : (
+              <Button
+                size="sm"
+                variant="secondary"
+                onClick={() => setActiveView("settings")}
+              >
+                前往设置指定目录
+              </Button>
+            )}
+          </div>
+        </div>
+      ) : null}
+
+      {/* 状态分类条 */}
+      <div className="sh-plate flex shrink-0 flex-wrap items-center gap-1.5 border-b border-border px-4 py-1.5 text-xs">
+        <div className="flex flex-wrap items-center gap-1">
+          {categoryTabs.map((tab) => {
+            const active = sourceFilter === tab.id;
+            return (
+              <button
+                key={tab.id}
+                type="button"
+                onClick={() => setSourceFilter(tab.id)}
+                className={cn(
+                  "inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs transition-colors",
+                  active
+                    ? "bg-accent-subtle font-medium text-accent"
+                    : "text-fg-muted hover:bg-surface-hover hover:text-fg",
+                )}
+              >
+                <span>{tab.label}</span>
+                <span className="font-mono text-[10px] tabular-nums opacity-75">
+                  {tab.count}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        {/* 解析出来的搜索语法糖标签 */}
         {[
           ...parsed.tags.map((t) => `tag:${t}`),
           ...parsed.agents.map((a) => `agent:${a}`),
@@ -291,38 +521,52 @@ export function SkillsView() {
 
         {parsed.malformed.length > 0 ? (
           <span
-            className="flex items-center gap-1 text-warning"
+            className="flex items-center gap-1 text-[11px] text-warning"
             title={parsed.malformed.join("\n")}
           >
             <AlertTriangle className="size-3" />
-            筛选条件写法不完整：{parsed.malformed.join("、")}
+            筛选语法不完整：{parsed.malformed.join("、")}
           </span>
         ) : null}
 
-        <Button
-          variant="ghost"
-          size="sm"
-          className="ml-auto"
-          onClick={() => setImportOpen(true)}
-        >
-          <Import className="size-3.5" />
-          导入
-        </Button>
+        <div className="ml-auto flex items-center gap-3 text-[11px] text-fg-subtle">
+          {!showSystemSkills && hiddenSystemCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setShowSystemSkills(true)}
+              className="text-accent underline-offset-2 hover:underline"
+            >
+              显示 {hiddenSystemCount} 个系统 Skill
+            </button>
+          ) : null}
+          {report.skipped.length > 0 ? (
+            <span
+              className="flex items-center gap-1 text-warning"
+              title={report.skipped.join("\n")}
+            >
+              <AlertTriangle className="size-3" />
+              {report.skipped.length} 项跳过
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <ImportDialog
         open={importOpen}
         onOpenChange={(next) => {
           setImportOpen(next);
-          // 预览归调用方持有，关掉就要一起清掉；否则下次打开会拿
-          // 上一次拖拽的预览冒充新预览
           if (!next) setPresetPreview(null);
         }}
         libraryPath={libraryPath}
         presetPreview={presetPreview}
       />
 
-      <BulkActionBar visible={visible} allSkills={report.skills} />
+      <BulkActionBar
+        visible={visible}
+        allSkills={report.skills}
+        activeAgent={activeAgent}
+        readyAgents={readyAgents}
+      />
 
       {report.skills.length === 0 ? (
         <EmptyState
@@ -332,8 +576,7 @@ export function SkillsView() {
             <div className="space-y-1">
               <p>中央库与已检测到的 Agent 技能目录中都没有 SKILL.md。</p>
               <p className="text-xs text-fg-subtle">
-                把 Skill 文件夹放进中央库的 skills 目录，或在 Agent 中添加 Skill
-                后点刷新。
+                把 Skill 文件夹或压缩包拖进此页面即可导入。
               </p>
             </div>
           }
@@ -342,7 +585,7 @@ export function SkillsView() {
         <EmptyState
           icon={<Search />}
           title="没有匹配的 Skill"
-          description="试试更换关键词，或把来源筛选改回「全部来源」。"
+          description="试试切换上方分类标签或更换搜索关键词。"
         />
       ) : viewMode === "grid" ? (
         <SkillGrid
@@ -351,6 +594,9 @@ export function SkillsView() {
           onSelect={handleSelect}
           snippets={snippets}
           keywords={parsed.keywords}
+          activeAgentId={activeAgentId}
+          agentStates={agentStates}
+          readyAgents={readyAgents}
         />
       ) : (
         <SkillList
@@ -359,6 +605,9 @@ export function SkillsView() {
           onSelect={handleSelect}
           snippets={snippets}
           keywords={parsed.keywords}
+          activeAgentId={activeAgentId}
+          agentStates={agentStates}
+          readyAgents={readyAgents}
         />
       )}
     </div>

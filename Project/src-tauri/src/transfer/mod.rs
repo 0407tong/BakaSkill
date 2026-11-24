@@ -256,6 +256,183 @@ fn unsafe_zip_entries(names: &[String]) -> Vec<String> {
         .collect()
 }
 
+/// 解压任意受支持的压缩包（ZIP / .skill / 7z / TAR / TAR.GZ / TGZ）到 `dest`。
+///
+/// **安全红线**：所有格式都必须在写入任何文件之前，先整体校验全部条目路径，
+/// 发现越界条目即整包拒绝。
+fn extract_archive(archive_path: &Path, dest: &Path) -> AppResult<()> {
+    let lower = archive_path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if lower.ends_with(".7z") {
+        extract_7z(archive_path, dest)
+    } else if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+        extract_tar_gz(archive_path, dest)
+    } else if lower.ends_with(".tar") {
+        extract_tar(archive_path, dest)
+    } else {
+        extract_zip(archive_path, dest)
+    }
+}
+
+fn reject_unsafe_entries(unsafe_names: &[String], kind: &str) -> AppResult<()> {
+    if unsafe_names.is_empty() {
+        return Ok(());
+    }
+    let shown: Vec<&str> = unsafe_names.iter().take(5).map(String::as_str).collect();
+    Err(AppError::Config(format!(
+        "这个 {kind} 里有 {} 个条目会写到解压目录之外，已整体拒绝导入。\n\n\
+         越界的条目：{}{}\n\n\
+         正常的压缩包不该包含这类路径，请确认来源是否可信。",
+        unsafe_names.len(),
+        shown.join("、"),
+        if unsafe_names.len() > shown.len() {
+            " …"
+        } else {
+            ""
+        }
+    )))
+}
+
+/// 解压 7z 到 `dest`（先整体校验路径，再解压）
+fn extract_7z(archive_path: &Path, dest: &Path) -> AppResult<()> {
+    let mut reader = sevenz_rust::SevenZReader::open(archive_path, sevenz_rust::Password::empty())
+        .map_err(|err| AppError::Io(format!("不是有效的 7z 文件：{err}")))?;
+
+    let names: Vec<String> = reader
+        .archive()
+        .files
+        .iter()
+        .map(|f| f.name().to_string())
+        .collect();
+    reject_unsafe_entries(&unsafe_zip_entries(&names), "7z")?;
+
+    std::fs::create_dir_all(dest).map_err(|err| AppError::from_io("创建解压目录失败", err))?;
+
+    reader
+        .for_each_entries(|entry, data| {
+            let target = dest.join(entry.name().replace('\\', "/"));
+            if entry.is_directory() {
+                std::fs::create_dir_all(&target)?;
+                return Ok(true);
+            }
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let mut out = std::fs::File::create(&target)?;
+            std::io::copy(data, &mut out)?;
+            Ok(true)
+        })
+        .map_err(|err| AppError::Io(format!("解压 7z 失败：{err}")))?;
+
+    Ok(())
+}
+
+/// 解压 tar.gz / tgz 到 `dest`（先整体校验路径，再解压）
+fn extract_tar_gz(archive_path: &Path, dest: &Path) -> AppResult<()> {
+    // 第一遍只读条目名做越界校验
+    {
+        let file = std::fs::File::open(archive_path).map_err(|err| {
+            AppError::from_io(&format!("打开压缩包失败：{}", archive_path.display()), err)
+        })?;
+        let decoder = flate2::read::GzDecoder::new(file);
+        let mut archive = tar::Archive::new(decoder);
+        let entries = archive
+            .entries()
+            .map_err(|err| AppError::Io(format!("不是有效的 tar.gz 文件：{err}")))?;
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry =
+                entry.map_err(|err| AppError::Io(format!("读取 tar.gz 条目失败：{err}")))?;
+            let path = entry
+                .path()
+                .map_err(|err| AppError::Io(format!("读取 tar.gz 条目路径失败：{err}")))?;
+            names.push(path.to_string_lossy().to_string());
+        }
+        reject_unsafe_entries(&unsafe_zip_entries(&names), "tar.gz")?;
+    }
+
+    // 第二遍安全解压
+    let file = std::fs::File::open(archive_path).map_err(|err| {
+        AppError::from_io(&format!("打开压缩包失败：{}", archive_path.display()), err)
+    })?;
+    let decoder = flate2::read::GzDecoder::new(file);
+    let mut archive = tar::Archive::new(decoder);
+    extract_tar_entries(&mut archive, dest, "tar.gz")
+}
+
+/// 解压纯 tar 到 `dest`（先整体校验路径，再解压）
+fn extract_tar(archive_path: &Path, dest: &Path) -> AppResult<()> {
+    {
+        let file = std::fs::File::open(archive_path).map_err(|err| {
+            AppError::from_io(&format!("打开 tar 失败：{}", archive_path.display()), err)
+        })?;
+        let mut archive = tar::Archive::new(file);
+        let entries = archive
+            .entries()
+            .map_err(|err| AppError::Io(format!("不是有效的 tar 文件：{err}")))?;
+        let mut names = Vec::new();
+        for entry in entries {
+            let entry = entry.map_err(|err| AppError::Io(format!("读取 tar 条目失败：{err}")))?;
+            let path = entry
+                .path()
+                .map_err(|err| AppError::Io(format!("读取 tar 条目路径失败：{err}")))?;
+            names.push(path.to_string_lossy().to_string());
+        }
+        reject_unsafe_entries(&unsafe_zip_entries(&names), "tar")?;
+    }
+
+    let file = std::fs::File::open(archive_path).map_err(|err| {
+        AppError::from_io(&format!("打开 tar 失败：{}", archive_path.display()), err)
+    })?;
+    let mut archive = tar::Archive::new(file);
+    extract_tar_entries(&mut archive, dest, "tar")
+}
+
+fn extract_tar_entries<R: std::io::Read>(
+    archive: &mut tar::Archive<R>,
+    dest: &Path,
+    kind: &str,
+) -> AppResult<()> {
+    std::fs::create_dir_all(dest).map_err(|err| AppError::from_io("创建解压目录失败", err))?;
+    let entries = archive
+        .entries()
+        .map_err(|err| AppError::Io(format!("读取 {kind} 条目失败：{err}")))?;
+
+    for entry in entries {
+        let mut entry =
+            entry.map_err(|err| AppError::Io(format!("读取 {kind} 条目失败：{err}")))?;
+        let rel = entry
+            .path()
+            .map_err(|err| AppError::Io(format!("读取 {kind} 路径失败：{err}")))?
+            .to_string_lossy()
+            .replace('\\', "/");
+        let target = dest.join(&rel);
+        let entry_type = entry.header().entry_type();
+
+        if entry_type.is_dir() {
+            std::fs::create_dir_all(&target)
+                .map_err(|err| AppError::from_io("创建目录失败", err))?;
+        } else if entry_type.is_file() {
+            if let Some(parent) = target.parent() {
+                std::fs::create_dir_all(parent)
+                    .map_err(|err| AppError::from_io("创建目录失败", err))?;
+            }
+            let mut out = std::fs::File::create(&target).map_err(|err| {
+                AppError::from_io(&format!("写入 {} 失败", target.display()), err)
+            })?;
+            std::io::copy(&mut entry, &mut out).map_err(|err| {
+                AppError::from_io(&format!("解压 {} 失败", target.display()), err)
+            })?;
+        }
+        // 跳过符号链接/硬链接等特殊条目，防止链接逃逸
+    }
+
+    Ok(())
+}
+
 /// 解压 ZIP 到 `dest`。
 ///
 /// **先整体校验、再解压**：不先校验就边解边写，等于先把恶意文件落盘再后悔。
@@ -344,19 +521,36 @@ fn classify_path(raw: &str) -> Result<ImportSource, String> {
         });
     }
 
+    let lower_name = path
+        .file_name()
+        .map(|n| n.to_string_lossy().to_ascii_lowercase())
+        .unwrap_or_default();
+
+    if lower_name.ends_with(".tar.gz")
+        || lower_name.ends_with(".tgz")
+        || lower_name.ends_with(".tar")
+        || lower_name.ends_with(".7z")
+        || lower_name.ends_with(".zip")
+        || lower_name.ends_with(".skill")
+    {
+        return Ok(ImportSource::Zip {
+            path: raw.to_string(),
+        });
+    }
+
     let extension = path
         .extension()
         .and_then(|e| e.to_str())
         .map(|e| e.to_ascii_lowercase());
 
     match extension.as_deref() {
-        Some("zip") => Ok(ImportSource::Zip {
-            path: raw.to_string(),
-        }),
         Some("md") => Ok(ImportSource::SkillFile {
             path: raw.to_string(),
         }),
-        _ => Err("只支持文件夹、.zip 与 .md（SKILL.md）".to_string()),
+        _ => Err(
+            "只支持文件夹、压缩包（.zip / .7z / .tar.gz / .tgz / .tar / .skill）与 .md 文件"
+                .to_string(),
+        ),
     }
 }
 
@@ -527,11 +721,11 @@ fn collect_source(source: &ImportSource, staging: &Path) -> AppResult<()> {
             let archive = PathBuf::from(path);
             if !archive.is_file() {
                 return Err(AppError::NotFound(format!(
-                    "ZIP 文件不存在：{}",
+                    "压缩包文件不存在：{}",
                     archive.display()
                 )));
             }
-            extract_zip(&archive, staging)
+            extract_archive(&archive, staging)
         }
         ImportSource::Git { url } => {
             let dest = staging.join("repo");
@@ -1272,6 +1466,55 @@ mod tests {
             !extract_to.join("skills/good/SKILL.md").exists(),
             "整体拒绝的意思是连正常条目也不解压"
         );
+    }
+
+    #[test]
+    fn tar_gz_archive_is_extracted_and_previewed() {
+        let (tmp, lib) = setup();
+        let archive_path = tmp.path().join("bundle.tar.gz");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut builder = tar::Builder::new(encoder);
+            let data = b"---\nname: tar-skill\ndescription: from tar.gz\n---\nbody\n";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            header.set_cksum();
+            builder
+                .append_data(&mut header, "skills/tar-skill/SKILL.md", &data[..])
+                .unwrap();
+            builder.finish().unwrap();
+        }
+
+        let preview = preview_paths(&lib, &[archive_path.display().to_string()]).unwrap();
+        assert_eq!(preview.candidates.len(), 1);
+        assert_eq!(preview.candidates[0].name, "tar-skill");
+    }
+
+    #[test]
+    fn malicious_tar_gz_is_rejected_without_writing_anything() {
+        let tmp = tempfile::tempdir().unwrap();
+        let archive_path = tmp.path().join("evil.tar.gz");
+        {
+            let file = std::fs::File::create(&archive_path).unwrap();
+            let encoder = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+            let mut builder = tar::Builder::new(encoder);
+            let data = b"pwned";
+            let mut header = tar::Header::new_gnu();
+            header.set_size(data.len() as u64);
+            header.set_mode(0o644);
+            // 手动写入越界路径头
+            header.as_gnu_mut().unwrap().name[..14].copy_from_slice(b"../../evil.txt");
+            header.set_cksum();
+            builder.append(&header, &data[..]).unwrap();
+            builder.finish().unwrap();
+        }
+
+        let extract_to = tmp.path().join("out");
+        let err = extract_archive(&archive_path, &extract_to).unwrap_err();
+        assert!(err.to_string().contains("解压目录之外"), "{err}");
+        assert!(!tmp.path().join("evil.txt").exists());
     }
 
     // =======================================================================

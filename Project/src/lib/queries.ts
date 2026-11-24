@@ -85,9 +85,12 @@ export function useSetConfig() {
       call<ConfigView>("config_set", { config }),
     onSuccess: (saved) => {
       queryClient.setQueryData(queryKeys.config, saved);
-      // 中央库路径可能变了，相关查询需要重新取数
+      // 中央库路径或 Agent 目录可能变了，相关查询需要重新取数
       void queryClient.invalidateQueries({ queryKey: ["library"] });
       void queryClient.invalidateQueries({ queryKey: ["index"] });
+      void queryClient.invalidateQueries({ queryKey: ["agents"] });
+      void queryClient.invalidateQueries({ queryKey: ["scan"] });
+      void queryClient.invalidateQueries({ queryKey: ["links"] });
     },
   });
 }

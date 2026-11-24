@@ -1,6 +1,3 @@
-import { Settings2 } from "lucide-react";
-
-import { EmptyState } from "@/components/EmptyState";
 import { AgentDirSettings } from "@/components/settings/AgentDirSettings";
 import { AppearanceSettings } from "@/components/settings/AppearanceSettings";
 import { CentralPathPicker } from "@/components/settings/CentralPathPicker";
@@ -17,13 +14,14 @@ import { GitHubSyncPanel } from "@/components/settings/GitHubSyncPanel";
  */
 export function SettingsView() {
   return (
-    <div className="flex-1 overflow-y-auto p-6">
-      <div className="mx-auto max-w-3xl space-y-4">
-        <EmptyState
-          icon={<Settings2 />}
-          title="设置"
-          description="中央库位置、Agent 技能目录与同步配置。"
-        />
+    <div className="flex-1 overflow-y-auto px-6 py-5">
+      <div className="mx-auto max-w-3xl space-y-5">
+        <header className="sh-plate rounded-xl border border-border bg-surface px-4 py-3">
+          <h2 className="text-sm font-semibold text-fg">应用设置</h2>
+          <p className="mt-0.5 text-xs text-fg-muted">
+            统一管理外观主题、中央库存储位置、各 Agent 技能目录与 GitHub 同步。
+          </p>
+        </header>
 
         {/* 外观：背景图。放在最前——它是"第一眼看到的东西" */}
         <AppearanceSettings />

@@ -53,7 +53,7 @@ export function BackgroundLayer() {
       <img
         src={source}
         alt=""
-        className="size-full object-cover"
+        className="sh-bg-img size-full object-cover"
         style={{ opacity: opacity / 100 }}
         onError={() => {
           // 只在自定义图失败时处理；默认图是打包进来的，不该失败
@@ -65,6 +65,8 @@ export function BackgroundLayer() {
           });
         }}
       />
+      {/* 主题自适应压暗/柔光遮罩：夜间模式下同步压低背景亮度，保证前景文字清晰舒适 */}
+      <div className="sh-bg-scrim absolute inset-0" />
     </div>
   );
 }

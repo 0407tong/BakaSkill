@@ -4,7 +4,7 @@ use std::path::PathBuf;
 
 use serde::Serialize;
 
-use crate::agents::{self, AgentDetection, AgentStatus};
+use crate::agents::{AgentDetection, AgentStatus};
 use crate::config;
 use crate::error::{AppError, AppResult};
 use crate::links::{self, AdoptResult, ConflictPolicy, LinkCell, LinkResult, LinkState};
@@ -66,24 +66,12 @@ fn resolve_central_root() -> AppResult<Option<PathBuf>> {
 #[tauri::command(async)]
 pub fn link_matrix() -> AppResult<LinkMatrix> {
     let central_root = resolve_central_root()?;
+    let detections = crate::commands::agents::agents_detect()?;
 
-    let cfg = config::load()?;
-    let detections: Vec<AgentDetection> = agents::registry()?
-        .iter()
-        .map(|d| {
-            let override_dir = cfg
-                .agents
-                .iter()
-                .find(|a| a.id == d.id)
-                .and_then(|a| a.skill_dir.as_deref());
-            agents::detect(d, override_dir)
-        })
-        .collect();
-
-    // 矩阵只列已检测到技能目录的 Agent
+    // 矩阵只列已启用且检测到技能目录的 Agent
     let active: Vec<&AgentDetection> = detections
         .iter()
-        .filter(|a| a.status == AgentStatus::Detected && a.skill_dir.is_some())
+        .filter(|a| a.enabled && a.status == AgentStatus::Detected && a.skill_dir.is_some())
         .collect();
 
     let scan = scanner::scan(&detections, central_root.as_deref())?;
@@ -188,24 +176,13 @@ pub fn link_set_enabled(
         return Err(AppError::Config("尚未配置中央库路径".to_string()));
     };
 
-    let cfg = config::load()?;
-    let detections: Vec<AgentDetection> = agents::registry()?
-        .iter()
-        .map(|d| {
-            let override_dir = cfg
-                .agents
-                .iter()
-                .find(|a| a.id == d.id)
-                .and_then(|a| a.skill_dir.as_deref());
-            agents::detect(d, override_dir)
-        })
-        .collect();
+    let detections = crate::commands::agents::agents_detect()?;
 
     let policy = policy.unwrap_or_default();
     let mut results = Vec::new();
 
     for detection in &detections {
-        if detection.status != AgentStatus::Detected {
+        if !detection.enabled || detection.status != AgentStatus::Detected {
             continue;
         }
         if !agent_ids.is_empty() && !agent_ids.contains(&detection.id) {
@@ -258,23 +235,16 @@ pub fn skill_adopt(agent_id: String, dir_name: String) -> AppResult<AdoptResult>
         return Err(AppError::Config("尚未配置中央库路径".to_string()));
     };
 
-    let cfg = config::load()?;
-    let detection = agents::registry()?
+    let detections = crate::commands::agents::agents_detect()?;
+    let detected = detections
         .into_iter()
         .find(|d| d.id == agent_id)
         .ok_or_else(|| AppError::NotFound(format!("未知的 Agent：{agent_id}")))?;
 
-    let override_dir = cfg
-        .agents
-        .iter()
-        .find(|a| a.id == agent_id)
-        .and_then(|a| a.skill_dir.as_deref());
-
-    let detected = agents::detect(&detection, override_dir);
     let Some(skill_dir) = detected.skill_dir else {
         return Err(AppError::Config(format!(
             "{} 尚未确定技能目录，请先在设置中指定。",
-            detection.display_name
+            detected.display_name
         )));
     };
 

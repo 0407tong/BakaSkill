@@ -6,7 +6,7 @@ import { SkillBadges } from "@/components/skill/SkillBadges";
 import { SkillToggle } from "@/components/skill/SkillToggle";
 import { Highlight } from "@/components/skill/Highlight";
 import { formatTimestamp } from "@/lib/format";
-import type { SkillSummary } from "@/types/ipc";
+import type { AgentDetection, LinkState, SkillSummary } from "@/types/ipc";
 
 export interface SkillListItemProps {
   skill: SkillSummary;
@@ -18,6 +18,9 @@ export interface SkillListItemProps {
   snippet?: string;
   /** 用于高亮的关键词 */
   keywords?: string;
+  activeAgentId?: string | null;
+  activeAgentState?: LinkState;
+  readyAgents?: readonly AgentDetection[];
 }
 
 /** 列表视图中的单行。信息密度高于卡片，用于快速扫读大量 Skill。 */
@@ -29,6 +32,9 @@ export function SkillListItem({
   onToggleChecked,
   snippet,
   keywords,
+  activeAgentId,
+  activeAgentState,
+  readyAgents,
 }: SkillListItemProps) {
   const hasParseError = skill.instances.some((i) => i.parseError);
 
@@ -100,7 +106,7 @@ export function SkillListItem({
           <Highlight text={snippet} keywords={keywords ?? ""} />
         ) : (
           (skill.description ?? (
-            <span className="text-fg-subtle">（无描述）</span>
+            <span className="text-fg-subtle">暂无描述</span>
           ))
         )}
       </div>
@@ -121,7 +127,12 @@ export function SkillListItem({
         {skill.updatedAt ? formatTimestamp(skill.updatedAt) : "—"}
       </span>
 
-      <SkillToggle skill={skill} />
+      <SkillToggle
+        skill={skill}
+        activeAgentId={activeAgentId}
+        activeAgentState={activeAgentState}
+        readyAgents={readyAgents}
+      />
 
       {hasParseError ? (
         <AlertTriangle

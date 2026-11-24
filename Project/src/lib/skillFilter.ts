@@ -1,4 +1,4 @@
-import type { SkillSummary } from "@/types/ipc";
+import type { LinkState, SkillSummary } from "@/types/ipc";
 import type { SortKey, SourceFilter } from "@/store/skillStore";
 
 /** `is:` 语法糖支持的取值 */
@@ -117,6 +117,15 @@ export interface FilterOptions {
    */
   showSystemSkills?: boolean;
   /**
+   * 仅查看某个指定 Agent 时的视角。`null` 表示总览全部。
+   */
+  agentId?: string | null;
+  /**
+   * 当 `agentId` 非空时，提供该 Agent 下每个 `skillId -> LinkState` 的映射，
+   * 使「已启用 / 未启用 / 异常」等分类精确对应到这个 Agent。
+   */
+  agentStates?: ReadonlyMap<string, LinkState> | null;
+  /**
    * 全文检索命中结果：`skillId -> 正文片段`。
    *
    * `null` 表示**尚未拿到**（还没搜、或搜索失败）——此时退回本地子串匹配。
@@ -153,11 +162,19 @@ export function applyFilters(
     parsed.flags.length > 0;
 
   const showSystem = options.showSystemSkills ?? false;
+  const agentId = options.agentId ?? null;
+  const agentStates = options.agentStates ?? null;
 
   const snippets = new Map<string, string>();
   const filtered = skills.filter((skill) => {
     if (!showSystem && isPureSystemSkill(skill)) return false;
-    if (!matchesSource(skill, options.sourceFilter)) return false;
+    if (agentId && !skill.inCentralLibrary) {
+      // 指定 Agent 视角下，不在中央库且不在该 Agent 目录里的 Skill 不展示
+      if (!skill.instances.some((i) => i.agentId === agentId)) return false;
+    }
+    if (!matchesCategory(skill, options.sourceFilter, agentId, agentStates)) {
+      return false;
+    }
     if (!hasQuery) return true;
 
     if (!matchesTags(skill, parsed.tags)) return false;
@@ -268,18 +285,43 @@ export function isPureSystemSkill(skill: SkillSummary): boolean {
   );
 }
 
-function matchesSource(skill: SkillSummary, filter: SourceFilter): boolean {
+function matchesCategory(
+  skill: SkillSummary,
+  filter: SourceFilter,
+  agentId: string | null,
+  agentStates: ReadonlyMap<string, LinkState> | null,
+): boolean {
+  if (filter === "all") return true;
+
+  if (agentId) {
+    const state = agentStates?.get(skill.id);
+    switch (filter) {
+      case "enabled":
+        return state === "valid";
+      case "disabled":
+        return skill.inCentralLibrary && (state === "absent" || !state);
+      case "unmanaged":
+        return (
+          !skill.inCentralLibrary &&
+          skill.instances.some((i) => i.agentId === agentId)
+        );
+      case "abnormal":
+        return state === "dangling" || state === "conflict";
+    }
+  }
+
   switch (filter) {
-    case "all":
-      return true;
-    case "central":
-      return skill.inCentralLibrary;
-    case "external":
-      return skill.instances.some((i) => i.kind === "external");
-    case "dangling":
-      return skill.instances.some((i) => i.kind === "dangling");
+    case "enabled":
+      return skill.managedCount > 0;
+    case "disabled":
+      return skill.inCentralLibrary && skill.managedCount === 0;
+    case "unmanaged":
+      return !skill.inCentralLibrary;
+    case "abnormal":
+      return skill.instances.some(
+        (i) => i.kind === "dangling" || i.kind === "externalDuplicate",
+      );
     default:
-      // 其余取值按 Agent id 处理
-      return skill.instances.some((i) => i.agentId === filter);
+      return true;
   }
 }

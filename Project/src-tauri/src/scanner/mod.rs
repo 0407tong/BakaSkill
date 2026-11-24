@@ -113,7 +113,7 @@ pub fn scan(agents: &[AgentDetection], central_root: Option<&Path>) -> AppResult
     // 并行扫描各 Agent
     let active: Vec<&AgentDetection> = agents
         .iter()
-        .filter(|a| a.status == AgentStatus::Detected)
+        .filter(|a| a.enabled && a.status == AgentStatus::Detected)
         .collect();
 
     let per_agent: Vec<(Vec<ScannedInstance>, Vec<String>, usize)> = active
@@ -486,6 +486,8 @@ mod tests {
             skill_dir: Some(dir.display().to_string()),
             detected_by: Vec::new(),
             is_user_override: false,
+            is_custom: false,
+            enabled: true,
             notes: None,
             docs_url: None,
         }

@@ -82,6 +82,8 @@ fn detection_for(id: &str, dir: &Path) -> AgentDetection {
         skill_dir: Some(dir.display().to_string()),
         detected_by: Vec::new(),
         is_user_override: false,
+        is_custom: false,
+        enabled: true,
         notes: None,
         docs_url: None,
     }
